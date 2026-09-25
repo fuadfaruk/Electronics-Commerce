@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\electroapi.core\electroapi.core.csproj" />
+  </ItemGroup>
+
 </Project>
