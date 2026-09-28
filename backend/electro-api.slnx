@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/electroapi.api/electroapi.api.csproj" Id="afae3966-2eec-4243-9028-9f5b9ddf07d1" />
-    <Project Path="src/electroapi.core/electroapi.core.csproj" Id="52751afa-5a43-47fb-b8b2-8e2949d98dd3" />
-    <Project Path="src/electroapi.infrastructure/electroapi.infrastructure.csproj" Id="7a58ff26-fcd8-49cc-8817-273b9a412d2e" />
+    <Project Path="src/electroapi.api/electroapi.api.csproj" DisplayName="ElectroApi.Api" Id="afae3966-2eec-4243-9028-9f5b9ddf07d1" />
+    <Project Path="src/electroapi.core/electroapi.core.csproj" DisplayName="ElectroApi.Core" Id="52751afa-5a43-47fb-b8b2-8e2949d98dd3" />
+    <Project Path="src/electroapi.infrastructure/electroapi.infrastructure.csproj" DisplayName="ElectroApi.Infrastructure" Id="7a58ff26-fcd8-49cc-8817-273b9a412d2e" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/electroapi.integration.tests/electroapi.integration.tests.csproj" Id="de28096a-ed4b-4eeb-97f7-b0f42a4d2e9d" />

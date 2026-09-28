@@ -1,5 +1,10 @@
 @electroapi.api_HostAddress = https://localhost:7220
 
-GET {{electroapi.api_HostAddress}}/weatherforecast/
-Accept: application/json
+POST {{electroapi.api_HostAddress}}/api/order
+Content-Type: application/json
 
+{
+  //Order
+}
+
+###

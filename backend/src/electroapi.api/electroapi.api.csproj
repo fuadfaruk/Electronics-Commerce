@@ -11,12 +11,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controllers\" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\electroapi.core\electroapi.core.csproj" />
-    <ProjectReference Include="..\electroapi.infrastructure\electroapi.infrastructure.csproj" />
+    <ProjectReference Include="..\electroapi.core\ElectroApi.Core.csproj" />
+    <ProjectReference Include="..\electroapi.infrastructure\ElectroApi.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

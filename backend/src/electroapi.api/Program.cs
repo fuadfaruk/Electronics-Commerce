@@ -8,6 +8,8 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+Console.WriteLine("Hello, World! This line was executed from Program.cs");
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
