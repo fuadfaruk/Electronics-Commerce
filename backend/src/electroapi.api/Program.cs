@@ -16,7 +16,8 @@ public partial class Program
                 options.UseMySql(
                     connectionString,
                     ServerVersion.AutoDetect(connectionString)
-                ).UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) // Optional: for read-heavy scenarios
+                )
+                //.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) // Optional: for read-heavy scenarios
             );
 
         builder.Services.AddControllers();
