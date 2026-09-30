@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+/*
+  Design tokens.
+  Every colour is a CSS variable so a future dark theme only has to redefine
+  these values in one place — no utility classes need to change.
+*/
+:root {
+  /* Surfaces */
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f1f3f7;
+  --surface-inverted: #10151d;
+
+  /* Lines and text */
+  --border: #e3e7ee;
+  --border-strong: #cbd3e1;
+  --foreground: #10151d;
+  --muted-foreground: #5d6779;
+
+  /* One restrained brand accent */
+  --brand: #0f5fa8;
+  --brand-strong: #0b4a83;
+  --brand-soft: #e9f2fb;
+
+  /* Used sparingly: savings, alerts */
+  --accent: #c2410c;
+  --accent-soft: #fdf1e7;
+
+  --success: #0f7a4a;
+  --success-soft: #e7f5ee;
+  --warning: #9a5b06;
+  --warning-soft: #fdf3e3;
+  --danger: #b3261e;
+  --danger-soft: #fdeceb;
+
+  --radius: 0.875rem;
+
+  /* Thumb-friendly minimum. Every interactive control clears this. */
+  --tap-target: 2.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-inverted: var(--surface-inverted);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: var(--font-geist-sans);
+
+  --radius-card: var(--radius);
+  --spacing-tap: var(--tap-target);
+}
+
+/*
+  Tailwind v4 no longer applies a default border colour, so set one once here.
+  Explicit `border-*` utilities still win.
+*/
+*,
+::before,
+::after {
+  border-color: var(--border);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* Stops iOS from bumping font size when a phone is turned sideways. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Focus is always visible, but only for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Slide-over entrance. Reduced-motion users get the end state instantly. */
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawer-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.drawer-panel {
+  animation: drawer-slide-in 200ms ease-out;
+}
+
+.drawer-backdrop {
+  animation: drawer-fade-in 150ms ease-out;
+}
+
+/* Locks the page behind an open drawer without shifting layout. */
+.scroll-locked {
+  overflow: hidden;
+}
+
+/* Horizontal product rails scroll without a scrollbar gutter. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

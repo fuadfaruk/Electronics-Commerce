@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Networking device placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2f8e8"/>
+      <stop offset="1" stop-color="#e2f1cb"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <g fill="none" stroke="#4d7c0f" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M330 495a70 70 0 0 1 140 0"/>
+    <path d="M270 495a130 130 0 0 1 260 0"/>
+    <path d="M210 495a190 190 0 0 1 380 0"/>
+  </g>
+  <circle cx="400" cy="495" r="26" fill="#4d7c0f"/>
+</svg>

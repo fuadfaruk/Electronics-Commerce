@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Smartphone detail placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#eef0fe"/>
+      <stop offset="1" stop-color="#dde2fb"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <g fill="none" stroke="#4338ca" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.5" transform="translate(400 400) scale(0.88) translate(-400 -400)">
+    <rect x="295" y="215" width="210" height="370" rx="38"/>
+    <path d="M370 260h60"/>
+    <path d="M372 545h56"/>
+  </g>
+  <rect x="170" y="170" width="460" height="460" rx="44" fill="none" stroke="#4338ca" stroke-width="10" stroke-dasharray="28 22" opacity="0.5"/>
+</svg>

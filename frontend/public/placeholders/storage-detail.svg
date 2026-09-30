@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Storage device detail placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#fdf4e7"/>
+      <stop offset="1" stop-color="#f9e6c9"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <g fill="none" stroke="#b45309" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.5" transform="translate(400 400) scale(0.88) translate(-400 -400)">
+    <rect x="225" y="290" width="350" height="220" rx="26"/>
+    <path d="M265 350h270"/>
+    <path d="M265 402h270"/>
+    <circle cx="280" cy="458" r="14"/>
+    <circle cx="512" cy="458" r="18"/>
+  </g>
+  <rect x="170" y="170" width="460" height="460" rx="44" fill="none" stroke="#b45309" stroke-width="10" stroke-dasharray="28 22" opacity="0.5"/>
+</svg>
