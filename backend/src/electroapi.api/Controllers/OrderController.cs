@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace electroapi.api.Controllers
 {
-    [Route("api/[controller]")] // Use versioning
+    [Route("api/v1/[controller]")] // Add proper versioning to the route with package Microsoft.AspNetCore.Mvc.Versioning
     [ApiController]
     public class OrderController : ControllerBase
     {
