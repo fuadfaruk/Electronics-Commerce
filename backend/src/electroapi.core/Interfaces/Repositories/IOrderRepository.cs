@@ -5,13 +5,12 @@ using System.Text;
 
 namespace electroapi.core.Interfaces.Repositories
 {
-    // Async everything
     public interface IOrderRepository
     {
-        List<Order> GetOrders();
-        Order? GetOrderById(int id);
-        Order CreateOrder(Order order);
-        Order? UpdateOrder(Order order, int orderId);
-        bool DeleteOrder(int id);
+        Task<Order> CreateOrderAsync(Order order);
+        Task<bool> DeleteOrderAsync(int id);
+        Task<Order?> GetOrderByIdAsync(int id);
+        Task<List<Order>> GetOrdersAsync();
+        Task<Order?> UpdateOrderAsync(Order order, int orderId);
     }
 }

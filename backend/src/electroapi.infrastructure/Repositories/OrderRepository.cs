@@ -1,6 +1,7 @@
 ﻿using electroapi.core.Entities;
 using electroapi.core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -15,38 +16,40 @@ namespace electroapi.infrastructure.Repositories
         {
             _context = context;
         }
-        public Order CreateOrder(Order order)
+        public async Task<Order> CreateOrderAsync(Order order)
         {
-            return _context.Orders.Add(order).Entity;
+            await _context.Orders.AddAsync(order);
+            await _context.SaveChangesAsync();
+            return order;
         }
 
-        public bool DeleteOrder(int id)
+        public async Task<bool> DeleteOrderAsync(int id)
         {
-            var order = _context.Orders.Find(id);
+            var order = await _context.Orders.FindAsync(id);
             if(order == null)
             {
                 return false;
             }
             _context.Orders.Remove(order);
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
 
             return true;
         }
 
-        public Order? GetOrderById(int id)
+        public async Task<Order?> GetOrderByIdAsync(int id)
         {
-            return _context.Orders.Find(id);
+            return await _context.Orders.FindAsync(id);
         }
 
-        public List<Order> GetOrders()
+        public async Task<List<Order>> GetOrdersAsync()
         {
-            return _context.Orders.ToList();
+            return await _context.Orders.ToListAsync();
         }
 
-        public Order? UpdateOrder(Order order, int orderId)
+        public async Task<Order?> UpdateOrderAsync(Order order, int orderId)
         {
-            var existingOrder = _context.Orders.Find(orderId);
-            if(existingOrder == null)
+            var existingOrder = await _context.Orders.FindAsync(orderId);
+            if (existingOrder == null)
             {
                 return null;
             }
@@ -58,7 +61,7 @@ namespace electroapi.infrastructure.Repositories
             existingOrder.ProductIds = order.ProductIds;
 
             _context.Orders.Update(existingOrder);
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
 
             return existingOrder;
         }

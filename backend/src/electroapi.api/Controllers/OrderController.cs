@@ -10,22 +10,21 @@ namespace electroapi.api.Controllers
     public class OrderController : ControllerBase
     {
 
-        private readonly ApplicationDbContext _context;
-        public OrderController(ApplicationDbContext context) {
-            _context = context;
+        private readonly IOrderRepository _orderRepository;
+        public OrderController(IOrderRepository orderRepository) {
+            _orderRepository = orderRepository;
         }
         [HttpGet]
-        public IActionResult Get()
+        public async Task<IActionResult> GetAllOrders()
         {
-            var orders = _context.Orders.ToList();
+            var orders = await _orderRepository.GetOrdersAsync();
             return Ok(orders);
         }
 
         [HttpPost]
-        public IActionResult Post([FromBody] Order order) // Use DTO
+        public async Task<IActionResult> Post([FromBody] Order order) // Use DTO
         {
-            var createdOrder = _context.Orders.Add(order).Entity;
-            _context.SaveChanges();
+            var createdOrder = await _orderRepository.CreateOrderAsync(order);
             return Ok(createdOrder);
         }
     }
