@@ -1,3 +1,5 @@
+using electroapi.core.Interfaces.Repositories;
+using electroapi.infrastructure.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,10 +17,13 @@ public partial class Program
             .AddDbContext<ApplicationDbContext>(options =>
                 options.UseMySql(
                     connectionString,
-                    ServerVersion.AutoDetect(connectionString)
+                    ServerVersion.AutoDetect(connectionString),
+                    b => b.MigrationsAssembly("electroapi.infrastructure")
                 )
                 //.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) // Optional: for read-heavy scenarios
             );
+
+        builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 
         builder.Services.AddControllers();
         // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

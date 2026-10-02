@@ -4,10 +4,10 @@ namespace electroapi.core.Entities
 {
     public sealed class Order
     {
-        public Guid Id { get; set; }
+        public Guid OrderId { get; set; }
         public Guid UserId { get; set; }
         public User User { get; set; } = new User();
-        public Guid ProductIds { get; set; }
+        public List<Guid> ProductIds { get; set; } = new List<Guid>();
         public List<Product> Products { get; set; } = new List<Product>();
         public DateTime OrderDate { get; set; } = DateTime.UtcNow;
         public List<string> Address { get; set; } = new List<string>();

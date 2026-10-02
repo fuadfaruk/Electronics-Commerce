@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace electroapi.infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260929033246_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20261002163934_InitialMigration")]
+    partial class InitialMigration
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -27,7 +27,7 @@ namespace electroapi.infrastructure.Migrations
 
             modelBuilder.Entity("electroapi.core.Entities.Order", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("OrderId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
@@ -41,13 +41,14 @@ namespace electroapi.infrastructure.Migrations
                     b.Property<int>("OrderStatus")
                         .HasColumnType("int");
 
-                    b.Property<Guid>("ProductIds")
-                        .HasColumnType("char(36)");
+                    b.PrimitiveCollection<string>("ProductIds")
+                        .IsRequired()
+                        .HasColumnType("longtext");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("char(36)");
 
-                    b.HasKey("Id");
+                    b.HasKey("OrderId");
 
                     b.HasIndex("UserId");
 
@@ -56,7 +57,7 @@ namespace electroapi.infrastructure.Migrations
 
             modelBuilder.Entity("electroapi.core.Entities.Product", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("ProductId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
@@ -77,16 +78,16 @@ namespace electroapi.infrastructure.Migrations
                     b.Property<int>("ProductQuantity")
                         .HasColumnType("int");
 
-                    b.HasKey("Id");
+                    b.HasKey("ProductId");
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("Product");
+                    b.ToTable("Products");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.User", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("UserId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
@@ -98,7 +99,7 @@ namespace electroapi.infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.HasKey("Id");
+                    b.HasKey("UserId");
 
                     b.ToTable("User");
                 });

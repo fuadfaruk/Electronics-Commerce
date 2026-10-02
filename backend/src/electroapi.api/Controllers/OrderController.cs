@@ -1,4 +1,5 @@
 ﻿using electroapi.core.Entities;
+using electroapi.core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,6 +9,7 @@ namespace electroapi.api.Controllers
     [ApiController]
     public class OrderController : ControllerBase
     {
+
         private readonly ApplicationDbContext _context;
         public OrderController(ApplicationDbContext context) {
             _context = context;
@@ -22,9 +24,9 @@ namespace electroapi.api.Controllers
         [HttpPost]
         public IActionResult Post([FromBody] Order order) // Use DTO
         {
-            _context.Orders.Add(order);
+            var createdOrder = _context.Orders.Add(order).Entity;
             _context.SaveChanges();
-            return Ok(order);
+            return Ok(createdOrder);
         }
     }
 }
