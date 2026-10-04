@@ -27,5 +27,16 @@ namespace electroapi.api.Controllers
             var createdOrder = await _orderRepository.CreateOrderAsync(order);
             return Ok(createdOrder);
         }
+
+        [HttpPost("{id}")]
+        public async Task<IActionResult> UpdateOrder([FromBody] Order order, int id) // Use DTO
+        {
+            var updatedOrder = await _orderRepository.UpdateOrderAsync(order, id);
+            if (updatedOrder == null)
+            {
+                return NotFound();
+            }
+            return Ok(updatedOrder);
+        }
     }
 }
