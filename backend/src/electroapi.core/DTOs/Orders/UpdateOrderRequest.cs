@@ -6,13 +6,11 @@ using System.Text;
 
 namespace electroapi.core.DTOs.Orders
 {
-    public class CreateOrderRequest
+    public class UpdateOrderRequest
     {
-        public Guid OrderId { get; set; }
-        public Guid UserId { get; set; }
         public User User { get; set; } = new User();
         public List<Guid> ProductIds { get; set; } = new List<Guid>();
-        public DateTime OrderDate { get; set; } = DateTime.UtcNow;
+        public DateTime OrderTime { get; set; } = DateTime.UtcNow;
         public List<string> Address { get; set; } = new List<string>();
     }
 }

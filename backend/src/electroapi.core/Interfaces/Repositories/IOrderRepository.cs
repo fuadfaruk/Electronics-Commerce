@@ -11,6 +11,6 @@ namespace electroapi.core.Interfaces.Repositories
         Task<bool> DeleteOrderAsync(int id);
         Task<Order?> GetOrderByIdAsync(int id);
         Task<List<Order>> GetOrdersAsync();
-        Task<Order?> UpdateOrderAsync(Order order, int orderId);
+        Task<Order?> UpdateOrderAsync(Order order);
     }
 }

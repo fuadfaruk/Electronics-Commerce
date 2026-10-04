@@ -11,7 +11,7 @@ namespace electroapi.core.Entities
         public List<Product> Products { get; set; } = new List<Product>();
         public DateTime OrderDate { get; set; } = DateTime.UtcNow;
         public List<string> Address { get; set; } = new List<string>();
-        public OrderStatus OrderStatus { get; set; }
+        public OrderStatus OrderStatus { get; set; } = OrderStatus.Pending;
     }
 }
 

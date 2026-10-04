@@ -46,24 +46,12 @@ namespace electroapi.infrastructure.Repositories
             return await _context.Orders.ToListAsync();
         }
 
-        public async Task<Order?> UpdateOrderAsync(Order order, int orderId)
+        public async Task<Order?> UpdateOrderAsync(Order order)
         {
-            var existingOrder = await _context.Orders.FindAsync(orderId);
-            if (existingOrder == null)
-            {
-                return null;
-            }
-
-            existingOrder.UserId = order.UserId;
-            existingOrder.OrderDate = order.OrderDate;
-            existingOrder.Address = order.Address;
-            existingOrder.OrderStatus = order.OrderStatus;
-            existingOrder.ProductIds = order.ProductIds;
-
-            _context.Orders.Update(existingOrder);
+            _context.Orders.Update(order);
             await _context.SaveChangesAsync();
 
-            return existingOrder;
+            return order;
         }
     }
 }

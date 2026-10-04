@@ -9,6 +9,7 @@ namespace electroapi.core.Enums
         Pending = 0,
         Paid = 1,
         Shipped = 2,
-        Cancelled = 3,
+        Delivered = 3,
+        Cancelled = 4
     }
 }
