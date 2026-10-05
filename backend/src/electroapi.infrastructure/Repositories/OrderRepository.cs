@@ -23,7 +23,7 @@ namespace electroapi.infrastructure.Repositories
             return order;
         }
 
-        public async Task<bool> DeleteOrderAsync(int id)
+        public async Task<bool> DeleteOrderAsync(Guid id)
         {
             var order = await _context.Orders.FindAsync(id);
             if(order == null)
@@ -36,7 +36,7 @@ namespace electroapi.infrastructure.Repositories
             return true;
         }
 
-        public async Task<Order?> GetOrderByIdAsync(int id)
+        public async Task<Order?> GetOrderByIdAsync(Guid id)
         {
             return await _context.Orders.FindAsync(id);
         }

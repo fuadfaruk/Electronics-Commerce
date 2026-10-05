@@ -37,7 +37,7 @@ namespace electroapi.api.Controllers
             var newOrder = new Order
             {
                 OrderId = order.OrderId,
-                UserId = order.UserId,
+                UserId = order.UserId, // User ID should be set from the request, but the User object should be retrieved from the database based on the UserId.
                 ProductIds = order.ProductIds,
                 OrderDate = order.OrderDate,
                 Address = order.Address,
@@ -48,12 +48,12 @@ namespace electroapi.api.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateOrder([FromBody] UpdateOrderRequest updateOrder, int id)
+        public async Task<IActionResult> UpdateOrder([FromBody] UpdateOrderRequest updateOrder, Guid id)
         {
             var order = await _orderRepository.GetOrderByIdAsync(id);
             if (order == null)
             {
-                return NotFound();
+                return NotFound("The order was not found");
             }
 
             if(order.OrderStatus != OrderStatus.Pending)
@@ -61,9 +61,10 @@ namespace electroapi.api.Controllers
                 return BadRequest("Cannot update the order at this stage!");
             }
 
-            order.User = updateOrder.User;
             order.ProductIds = updateOrder.ProductIds;
-            order.OrderDate = updateOrder.OrderTime;
+            order.Address = updateOrder.Address;
+
+            order.OrderDate = DateTime.UtcNow;
 
             await _orderRepository.UpdateOrderAsync(order);
 
@@ -71,7 +72,7 @@ namespace electroapi.api.Controllers
         }
 
         [HttpPatch("{id}")]
-        public async Task<IActionResult> UpdateOrderStatus([FromBody] UpdateOrderStatus updateOrder, int id)
+        public async Task<IActionResult> UpdateOrderStatus([FromBody] UpdateOrderStatus updateOrder, Guid id)
         {
             var order = await _orderRepository.GetOrderByIdAsync(id);
             if (order == null)
