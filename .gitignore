@@ -39,3 +39,4 @@ appsettings.Local.json
 # OS files
 .DS_Store
 Thumbs.db
+/backend/src/electroapi.api/Properties/PublishProfiles
