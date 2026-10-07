@@ -1,5 +1,8 @@
-name: Build, publish and deploy to MonsterASP.NET
-on: [push]
+name: Build, publish and deploy electroapi.api
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
@@ -7,22 +10,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0
+          dotnet-version: 10.0.x
 
-      - name: Install dependencies
-        run: dotnet restore
+      - name: Restore electroapi.api for Windows deployment
+        run: dotnet restore backend/src/electroapi.api/electroapi.api.csproj -r win-x86
 
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
+      - name: Build electroapi.api
+        run: dotnet build backend/src/electroapi.api/electroapi.api.csproj --configuration Release --no-restore
 
-      - name: Publish
-        run: dotnet publish --configuration Release --output ./publish --runtime win-x86
+      - name: Test backend
+        run: dotnet test backend/electro-api.slnx --configuration Release
 
-      - name: Test with .NET
-        run: dotnet test
+      - name: Publish electroapi.api
+        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x86 --output ./publish/electroapi.api --no-restore --no-build
+
+      - name: Upload publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electroapi.api
+          path: ./publish/electroapi.api
 
       - name: Deploy to MonsterASP.NET via WebDeploy
         uses: rasmusbuchholdt/simply-web-deploy@2.1.0
@@ -31,3 +40,4 @@ jobs:
           server-computer-name: ${{ secrets.SERVER_COMPUTER_NAME }}
           server-username: ${{ secrets.SERVER_USERNAME }}
           server-password: ${{ secrets.SERVER_PASSWORD }}
+          source-path: ./publish/electroapi.api
