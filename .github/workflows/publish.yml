@@ -26,24 +26,24 @@ jobs:
         run: dotnet test backend/electro-api.slnx --configuration Release --no-restore
 
       - name: Publish electroapi.api
-        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ./publish/electroapi.api --no-restore
+        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ${{ github.workspace }}/publish/electroapi.api --no-restore
 
       - name: Verify publish output
         shell: pwsh
         run: |
-          if (-not (Test-Path "./publish/electroapi.api")) {
+          if (-not (Test-Path "${{ github.workspace }}/publish/electroapi.api")) {
             Write-Error "Publish directory does not exist!"
             exit 1
           }
-
+          
           Write-Host "Publish directory exists."
-          Get-ChildItem "./publish/electroapi.api"
+          Get-ChildItem "${{ github.workspace }}/publish/electroapi.api"
 
       - name: Upload publish artifact
         uses: actions/upload-artifact@v4
         with:
           name: electroapi.api
-          path: ./publish/electroapi.api
+          path: ${{ github.workspace }}/publish/electroapi.api
 
       - name: Deploy to MonsterASP.NET via WebDeploy
         uses: rasmusbuchholdt/simply-web-deploy@2.1.0
@@ -52,4 +52,4 @@ jobs:
           server-computer-name: ${{ secrets.SERVER_COMPUTER_NAME }}
           server-username: ${{ secrets.SERVER_USERNAME }}
           server-password: ${{ secrets.SERVER_PASSWORD }}
-          source-path: ./publish/electroapi.api
+          source-path: ${{ github.workspace }}/publish/electroapi.api
