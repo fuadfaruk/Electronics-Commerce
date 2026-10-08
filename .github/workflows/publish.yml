@@ -33,6 +33,19 @@ jobs:
           name: electroapi.api
           path: ./publish/electroapi.api
 
+      - name: Check deployment secrets
+        shell: pwsh
+        env:
+          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
+          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
+          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          Write-Host "WEBSITE_NAME present: $(-not [string]::IsNullOrEmpty($env:WEBSITE_NAME))"
+          Write-Host "SERVER_COMPUTER_NAME present: $(-not [string]::IsNullOrEmpty($env:SERVER_COMPUTER_NAME))"
+          Write-Host "SERVER_USERNAME present: $(-not [string]::IsNullOrEmpty($env:SERVER_USERNAME))"
+          Write-Host "SERVER_PASSWORD present: $(-not [string]::IsNullOrEmpty($env:SERVER_PASSWORD))"
+
       - name: Deploy to MonsterASP.NET via WebDeploy
         uses: rasmusbuchholdt/simply-web-deploy@2.1.0
         with:
