@@ -45,11 +45,120 @@ jobs:
           name: electroapi.api
           path: ${{ github.workspace }}/publish/electroapi.api
 
-      - name: Deploy to MonsterASP.NET via WebDeploy
-        uses: rasmusbuchholdt/simply-web-deploy@2.1.0
-        with:
-          website-name: ${{ secrets.WEBSITE_NAME }}
-          server-computer-name: ${{ secrets.SERVER_COMPUTER_NAME }}
-          server-username: ${{ secrets.SERVER_USERNAME }}
-          server-password: ${{ secrets.SERVER_PASSWORD }}
-          source-path: publish/electroapi.api
+      - name: Deploy to MonsterASP.NET via Web Deploy
+        shell: pwsh
+        env:
+          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
+          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
+          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $msdeploy = "C:\Program Files (x86)\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          if (-not (Test-Path -LiteralPath $msdeploy)) {
+            throw "msdeploy.exe was not found at '$msdeploy'."
+          }
+
+          $sourcePath = Join-Path "${{ github.workspace }}" "publish/electroapi.api"
+          if (-not (Test-Path -LiteralPath (Join-Path $sourcePath "electroapi.api.dll"))) {
+            throw "Publish output is missing electroapi.api.dll at '$sourcePath'."
+          }
+
+          $site     = $env:WEBSITE_NAME
+          $server   = $env:SERVER_COMPUTER_NAME
+          $username = $env:SERVER_USERNAME
+          $password = $env:SERVER_PASSWORD
+
+          if ([string]::IsNullOrWhiteSpace($site))     { throw "Required setting 'WEBSITE_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($server))   { throw "Required setting 'SERVER_COMPUTER_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'SERVER_USERNAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'SERVER_PASSWORD' is empty. Check the repository secrets." }
+
+          $destContent = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+          $destRecycle = "recycleApp=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+
+          Write-Host "Deploying '$sourcePath' to site '$site' on '$server'."
+
+          function Invoke-MsDeploy {
+            param(
+              [Parameter(Mandatory)][string[]] $Arguments,
+              [Parameter(Mandatory)][string] $Label
+            )
+            Write-Host "::group::$Label"
+            $output = & $msdeploy @Arguments 2>&1
+            $code = $LASTEXITCODE
+            $output | ForEach-Object { Write-Host $_ }
+            Write-Host "::endgroup::"
+            if ($code -ne 0) {
+              throw "$Label failed with msdeploy exit code $code."
+            }
+            Write-Host "$Label succeeded."
+          }
+
+          Invoke-MsDeploy -Label "Stop application pool" -Arguments @(
+            "-verb:sync", "-allowUntrusted", "-source:recycleApp",
+            "-dest:$destRecycle,recycleMode=StopAppPool"
+          )
+
+          try {
+            Invoke-MsDeploy -Label "Deploy application content" -Arguments @(
+              "-verb:sync", "-allowUntrusted", "-verbose", "-enableRule:DoNotDeleteRule",
+              "-source:contentPath=$sourcePath",
+              "-dest:$destContent"
+            )
+          }
+          finally {
+            Invoke-MsDeploy -Label "Start application pool" -Arguments @(
+              "-verb:sync", "-allowUntrusted", "-source:recycleApp",
+              "-dest:$destRecycle,recycleMode=StartAppPool"
+            )
+          }
+
+      - name: Verify deployed files on the server
+        shell: pwsh
+        env:
+          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
+          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
+          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $msdeploy = "C:\Program Files (x86)\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          if (-not (Test-Path -LiteralPath $msdeploy)) {
+            throw "msdeploy.exe was not found at '$msdeploy'."
+          }
+
+          $site     = $env:WEBSITE_NAME
+          $server   = $env:SERVER_COMPUTER_NAME
+          $username = $env:SERVER_USERNAME
+          $password = $env:SERVER_PASSWORD
+          $localDll = Join-Path "${{ github.workspace }}" "publish/electroapi.api/electroapi.api.dll"
+          $temp = Join-Path $env:RUNNER_TEMP "remote-site"
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+
+          $source = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+
+          Write-Host "Reading the deployed site '$site' back from '$server' for verification..."
+          $output = & $msdeploy -verb:sync -allowUntrusted "-source:$source" "-dest:contentPath=$temp" 2>&1
+          $code = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) {
+            throw "Could not read the deployed site back (msdeploy exit code $code)."
+          }
+
+          $remoteDll = Join-Path $temp "electroapi.api.dll"
+          if (-not (Test-Path -LiteralPath $remoteDll)) {
+            throw "electroapi.api.dll was not found in the deployed site. The deployment did not reach '$site'."
+          }
+
+          $localHash  = (Get-FileHash -LiteralPath $localDll  -Algorithm SHA256).Hash
+          $remoteHash = (Get-FileHash -LiteralPath $remoteDll -Algorithm SHA256).Hash
+          Write-Host "Local  electroapi.api.dll SHA256: $localHash"
+          Write-Host "Remote electroapi.api.dll SHA256: $remoteHash"
+          if ($localHash -ne $remoteHash) {
+            throw "The deployed electroapi.api.dll does not match the freshly published build."
+          }
+
+          Write-Host "Deployment verified: the freshly built electroapi.api.dll is live on '$site'."
