@@ -7,6 +7,7 @@ on:
 jobs:
   build_and_deploy:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,26 +26,24 @@ jobs:
         run: dotnet test backend/electro-api.slnx --configuration Release --no-restore
 
       - name: Publish electroapi.api
-        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ./publish/electroapi.api --no-restore --no-build
+        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ./publish/electroapi.api --no-restore
+
+      - name: Verify publish output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "./publish/electroapi.api")) {
+            Write-Error "Publish directory does not exist!"
+            exit 1
+          }
+
+          Write-Host "Publish directory exists."
+          Get-ChildItem "./publish/electroapi.api"
 
       - name: Upload publish artifact
         uses: actions/upload-artifact@v4
         with:
           name: electroapi.api
           path: ./publish/electroapi.api
-
-      - name: Check deployment secrets
-        shell: pwsh
-        env:
-          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
-          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
-          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
-        run: |
-          Write-Host "WEBSITE_NAME present: $(-not [string]::IsNullOrEmpty($env:WEBSITE_NAME))"
-          Write-Host "SERVER_COMPUTER_NAME present: $(-not [string]::IsNullOrEmpty($env:SERVER_COMPUTER_NAME))"
-          Write-Host "SERVER_USERNAME present: $(-not [string]::IsNullOrEmpty($env:SERVER_USERNAME))"
-          Write-Host "SERVER_PASSWORD present: $(-not [string]::IsNullOrEmpty($env:SERVER_PASSWORD))"
 
       - name: Deploy to MonsterASP.NET via WebDeploy
         uses: rasmusbuchholdt/simply-web-deploy@2.1.0
