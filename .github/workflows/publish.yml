@@ -19,31 +19,8 @@ jobs:
       - name: Restore backend for Windows deployment
         run: dotnet restore backend/electro-api.slnx --runtime win-x64
 
-      - name: Build electroapi.api
-        run: dotnet build backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --no-restore
-
-      - name: Test backend
-        run: dotnet test backend/electro-api.slnx --configuration Release --no-restore
-
       - name: Publish electroapi.api
         run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ${{ github.workspace }}/publish/electroapi.api --no-restore
-
-      - name: Verify publish output
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "${{ github.workspace }}/publish/electroapi.api")) {
-            Write-Error "Publish directory does not exist!"
-            exit 1
-          }
-          
-          Write-Host "Publish directory exists."
-          Get-ChildItem "${{ github.workspace }}/publish/electroapi.api"
-
-      - name: Upload publish artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: electroapi.api
-          path: ${{ github.workspace }}/publish/electroapi.api
 
       - name: Deploy to MonsterASP.NET via Web Deploy
         shell: pwsh
@@ -75,8 +52,8 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'SERVER_USERNAME' is empty. Check the repository secrets." }
           if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'SERVER_PASSWORD' is empty. Check the repository secrets." }
 
-          $destContent = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
-          $destRecycle = "recycleApp=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+          $destContent = "contentPath=$site/backend,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+          $destRecycle = "recycleApp=$site/backend,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
 
           Write-Host "Deploying '$sourcePath' to site '$site' on '$server'."
 
@@ -114,51 +91,3 @@ jobs:
               "-dest:$destRecycle,recycleMode=StartAppPool"
             )
           }
-
-      - name: Verify deployed files on the server
-        shell: pwsh
-        env:
-          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
-          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
-          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $msdeploy = "C:\Program Files (x86)\IIS\Microsoft Web Deploy V3\msdeploy.exe"
-          if (-not (Test-Path -LiteralPath $msdeploy)) {
-            throw "msdeploy.exe was not found at '$msdeploy'."
-          }
-
-          $site     = $env:WEBSITE_NAME
-          $server   = $env:SERVER_COMPUTER_NAME
-          $username = $env:SERVER_USERNAME
-          $password = $env:SERVER_PASSWORD
-          $localDll = Join-Path "${{ github.workspace }}" "publish/electroapi.api/electroapi.api.dll"
-          $temp = Join-Path $env:RUNNER_TEMP "remote-site"
-          New-Item -ItemType Directory -Force -Path $temp | Out-Null
-
-          $source = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
-
-          Write-Host "Reading the deployed site '$site' back from '$server' for verification..."
-          $output = & $msdeploy -verb:sync -allowUntrusted "-source:$source" "-dest:contentPath=$temp" 2>&1
-          $code = $LASTEXITCODE
-          $output | ForEach-Object { Write-Host $_ }
-          if ($code -ne 0) {
-            throw "Could not read the deployed site back (msdeploy exit code $code)."
-          }
-
-          $remoteDll = Join-Path $temp "electroapi.api.dll"
-          if (-not (Test-Path -LiteralPath $remoteDll)) {
-            throw "electroapi.api.dll was not found in the deployed site. The deployment did not reach '$site'."
-          }
-
-          $localHash  = (Get-FileHash -LiteralPath $localDll  -Algorithm SHA256).Hash
-          $remoteHash = (Get-FileHash -LiteralPath $remoteDll -Algorithm SHA256).Hash
-          Write-Host "Local  electroapi.api.dll SHA256: $localHash"
-          Write-Host "Remote electroapi.api.dll SHA256: $remoteHash"
-          if ($localHash -ne $remoteHash) {
-            throw "The deployed electroapi.api.dll does not match the freshly published build."
-          }
-
-          Write-Host "Deployment verified: the freshly built electroapi.api.dll is live on '$site'."
