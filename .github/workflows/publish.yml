@@ -52,7 +52,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'SERVER_USERNAME' is empty. Check the repository secrets." }
           if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'SERVER_PASSWORD' is empty. Check the repository secrets." }
 
-          $destContent = "contentPath=$site/backend,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+          $destContent = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
           $destRecycle = "recycleApp=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
 
           Write-Host "Deploying '$sourcePath' to site '$site' on '$server'."
