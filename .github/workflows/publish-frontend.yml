@@ -1,4 +1,4 @@
-name: Build, publish and deploy storefront frontend
+name: Build, publish and deploy frontend storefront
 
 on:
   push:

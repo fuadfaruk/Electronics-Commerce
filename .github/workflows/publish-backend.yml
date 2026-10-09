@@ -1,4 +1,4 @@
-name: Build, publish and deploy electroapi.api
+name: Build, publish and deploy backend electroapi.api
 
 on:
   push:
