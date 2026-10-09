@@ -1,0 +1,162 @@
+name: Build, publish and deploy storefront frontend
+
+on:
+  push:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/publish-frontend.yml"
+  workflow_dispatch:
+
+jobs:
+  build_and_deploy:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build storefront
+        working-directory: frontend
+        env:
+          # NEXT_PUBLIC_* values are inlined at build time, so they must be set here.
+          # Leave NEXT_PUBLIC_USE_MOCK_DATA unset (defaults to true) until the API is wired up.
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_USE_MOCK_DATA: ${{ vars.NEXT_PUBLIC_USE_MOCK_DATA || 'true' }}
+        run: npm run build
+
+      - name: Assemble deployment package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $source = Join-Path "${{ github.workspace }}" "frontend"
+          $standalone = Join-Path $source ".next/standalone"
+          $deploy = Join-Path "${{ github.workspace }}" "publish/storefront"
+
+          if (-not (Test-Path -LiteralPath $standalone)) {
+            throw "Standalone build output was not found at '$standalone'. Ensure next.config.ts sets output: 'standalone'."
+          }
+
+          if (Test-Path -LiteralPath $deploy) { Remove-Item -LiteralPath $deploy -Recurse -Force }
+          New-Item -ItemType Directory -Path $deploy -Force | Out-Null
+
+          Copy-Item -Path (Join-Path $standalone "*") -Destination $deploy -Recurse -Force
+
+          $static = Join-Path $source ".next/static"
+          if (Test-Path -LiteralPath $static) {
+            New-Item -ItemType Directory -Path (Join-Path $deploy ".next") -Force | Out-Null
+            Copy-Item -Path $static -Destination (Join-Path $deploy ".next/static") -Recurse -Force
+          }
+
+          $publicDir = Join-Path $source "public"
+          if (Test-Path -LiteralPath $publicDir) {
+            Copy-Item -Path (Join-Path $publicDir "*") -Destination (Join-Path $deploy "public") -Recurse -Force
+          }
+
+          if (-not (Test-Path -LiteralPath (Join-Path $deploy "server.js"))) {
+            throw "Assembled package is missing server.js at '$deploy'."
+          }
+
+          # IIS launches the standalone Next.js server through the HttpPlatform handler.
+          # The process must listen on the dynamically assigned HTTP_PLATFORM_PORT.
+          $webConfig = @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <system.webServer>
+              <handlers>
+                <add name="httpPlatformHandler" path="*" verb="*" modules="httpPlatformHandler" resourceType="Unspecified" />
+              </handlers>
+              <httpPlatform processPath="node" arguments="server.js" startupTimeLimit="60" startupRetryCount="10" stdoutLogEnabled="true" stdoutLogFile=".\logs\node">
+                <environmentVariables>
+                  <environmentVariable name="PORT" value="%HTTP_PLATFORM_PORT%" />
+                  <environmentVariable name="HOSTNAME" value="127.0.0.1" />
+                  <environmentVariable name="NODE_ENV" value="production" />
+                </environmentVariables>
+              </httpPlatform>
+            </system.webServer>
+          </configuration>
+          '@
+
+          Set-Content -LiteralPath (Join-Path $deploy "web.config") -Value $webConfig -Encoding utf8
+
+          Write-Host "Assembled frontend package at '$deploy'."
+
+      - name: Deploy to MonsterASP.NET via Web Deploy
+        shell: pwsh
+        env:
+          FRONT_WEBSITE_NAME: ${{ secrets.FRONT_WEBSITE_NAME }}
+          FRONT_SERVER_COMPUTER_NAME: ${{ secrets.FRONT_SERVER_COMPUTER_NAME }}
+          FRONT_SERVER_USERNAME: ${{ secrets.FRONT_SERVER_USERNAME }}
+          FRONT_SERVER_PASSWORD: ${{ secrets.FRONT_SERVER_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $msdeploy = "C:\Program Files (x86)\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          if (-not (Test-Path -LiteralPath $msdeploy)) {
+            throw "msdeploy.exe was not found at '$msdeploy'."
+          }
+
+          $sourcePath = Join-Path "${{ github.workspace }}" "publish/storefront"
+          if (-not (Test-Path -LiteralPath (Join-Path $sourcePath "server.js"))) {
+            throw "Publish output is missing server.js at '$sourcePath'."
+          }
+
+          $site     = $env:FRONT_WEBSITE_NAME
+          $server   = $env:FRONT_SERVER_COMPUTER_NAME
+          $username = $env:FRONT_SERVER_USERNAME
+          $password = $env:FRONT_SERVER_PASSWORD
+
+          if ([string]::IsNullOrWhiteSpace($site))     { throw "Required setting 'FRONT_WEBSITE_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($server))   { throw "Required setting 'FRONT_SERVER_COMPUTER_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'FRONT_SERVER_USERNAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'FRONT_SERVER_PASSWORD' is empty. Check the repository secrets." }
+
+          $destContent = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+          $destRecycle = "recycleApp=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
+
+          Write-Host "Deploying '$sourcePath' to site '$site' on '$server'."
+
+          function Invoke-MsDeploy {
+            param(
+              [Parameter(Mandatory)][string[]] $Arguments,
+              [Parameter(Mandatory)][string] $Label
+            )
+            Write-Host "::group::$Label"
+            $output = & $msdeploy @Arguments 2>&1
+            $code = $LASTEXITCODE
+            $output | ForEach-Object { Write-Host $_ }
+            Write-Host "::endgroup::"
+            if ($code -ne 0) {
+              throw "$Label failed with msdeploy exit code $code."
+            }
+            Write-Host "$Label succeeded."
+          }
+
+          Invoke-MsDeploy -Label "Stop application pool" -Arguments @(
+            "-verb:sync", "-allowUntrusted", "-source:recycleApp",
+            "-dest:$destRecycle,recycleMode=StopAppPool"
+          )
+
+          try {
+            Invoke-MsDeploy -Label "Deploy application content" -Arguments @(
+              "-verb:sync", "-allowUntrusted", "-verbose", "-enableRule:DoNotDeleteRule",
+              "-source:contentPath=$sourcePath",
+              "-dest:$destContent"
+            )
+          }
+          finally {
+            Invoke-MsDeploy -Label "Start application pool" -Arguments @(
+              "-verb:sync", "-allowUntrusted", "-source:recycleApp",
+              "-dest:$destRecycle,recycleMode=StartAppPool"
+            )
+          }

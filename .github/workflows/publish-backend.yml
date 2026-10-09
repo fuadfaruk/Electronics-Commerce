@@ -25,10 +25,10 @@ jobs:
       - name: Deploy to MonsterASP.NET via Web Deploy
         shell: pwsh
         env:
-          WEBSITE_NAME: ${{ secrets.WEBSITE_NAME }}
-          SERVER_COMPUTER_NAME: ${{ secrets.SERVER_COMPUTER_NAME }}
-          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+          BACK_WEBSITE_NAME: ${{ secrets.BACK_WEBSITE_NAME }}
+          BACK_SERVER_COMPUTER_NAME: ${{ secrets.BACK_SERVER_COMPUTER_NAME }}
+          BACK_SERVER_USERNAME: ${{ secrets.BACK_SERVER_USERNAME }}
+          BACK_SERVER_PASSWORD: ${{ secrets.BACK_SERVER_PASSWORD }}
         run: |
           $ErrorActionPreference = "Stop"
 
@@ -42,15 +42,15 @@ jobs:
             throw "Publish output is missing electroapi.api.dll at '$sourcePath'."
           }
 
-          $site     = $env:WEBSITE_NAME
-          $server   = $env:SERVER_COMPUTER_NAME
-          $username = $env:SERVER_USERNAME
-          $password = $env:SERVER_PASSWORD
+          $site     = $env:BACK_WEBSITE_NAME
+          $server   = $env:BACK_SERVER_COMPUTER_NAME
+          $username = $env:BACK_SERVER_USERNAME
+          $password = $env:BACK_SERVER_PASSWORD
 
-          if ([string]::IsNullOrWhiteSpace($site))     { throw "Required setting 'WEBSITE_NAME' is empty. Check the repository secrets." }
-          if ([string]::IsNullOrWhiteSpace($server))   { throw "Required setting 'SERVER_COMPUTER_NAME' is empty. Check the repository secrets." }
-          if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'SERVER_USERNAME' is empty. Check the repository secrets." }
-          if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'SERVER_PASSWORD' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($site))     { throw "Required setting 'BACK_WEBSITE_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($server))   { throw "Required setting 'BACK_SERVER_COMPUTER_NAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($username)) { throw "Required setting 'BACK_SERVER_USERNAME' is empty. Check the repository secrets." }
+          if ([string]::IsNullOrWhiteSpace($password)) { throw "Required setting 'BACK_SERVER_PASSWORD' is empty. Check the repository secrets." }
 
           $destContent = "contentPath=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
           $destRecycle = "recycleApp=$site,computerName=$server/MsDeploy.axd?site=$site,username=$username,password=$password,AuthType='Basic'"
