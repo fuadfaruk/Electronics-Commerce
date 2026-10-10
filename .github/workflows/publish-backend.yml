@@ -20,7 +20,7 @@ jobs:
         run: dotnet restore backend/electro-api.slnx --runtime win-x64
 
       - name: Publish electroapi.api
-        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj --configuration Release --runtime win-x64 --output ${{ github.workspace }}/publish/electroapi.api --no-restore
+        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj -c Release -o ${{ github.workspace }}/publish/electroapi.api  
 
       - name: Deploy to MonsterASP.NET via Web Deploy
         shell: pwsh
