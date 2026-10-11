@@ -77,7 +77,7 @@ export function ListingControls({
             onChange={(event) =>
               apply({ ...filters, sort: event.target.value as CatalogFilters["sort"] })
             }
-            className="h-11 rounded-xl border border-border-strong bg-surface px-3 text-sm font-medium"
+            className="h-11 rounded-full border border-border-strong bg-white/90 px-3 text-sm font-medium focus:border-brand focus:shadow-[0_0_0_3px_rgba(0,136,255,0.15)] focus:outline-none"
           >
             {SORT_KEYS.map((key) => (
               <option key={key} value={key}>
@@ -238,7 +238,7 @@ function priceLabel(filters: CatalogFilters): string {
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex h-10 items-center gap-1 rounded-full border border-border-strong bg-surface pr-0.5 pl-3 text-sm">
+    <span className="inline-flex h-10 items-center gap-1 rounded-full border border-border-strong bg-white/85 pr-0.5 pl-3 text-sm">
       {label}
       <button
         type="button"

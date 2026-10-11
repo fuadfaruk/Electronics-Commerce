@@ -24,7 +24,7 @@ export function QuantityStepper({
   return (
     <div
       className={cn(
-        "inline-flex items-center rounded-xl border border-border-strong bg-surface",
+        "inline-flex items-center rounded-xl border border-border-strong bg-white/90",
         className,
       )}
     >

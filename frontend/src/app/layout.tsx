@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { CartDrawer } from "@/components/cart/cart-drawer";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -10,6 +10,11 @@ import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
@@ -27,12 +32,12 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Lets the layout reach under the notch and home indicator.
   viewportFit: "cover",
-  themeColor: "#ffffff",
+  themeColor: "#e6edf2",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} h-full`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="font-sans antialiased">
         <CartProvider>
           <a
@@ -48,8 +53,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           */}
           <div className="flex min-h-dvh flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
             <SiteHeader />
-            <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-4">
-              {children}
+            <main
+              id="main"
+              className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 sm:py-6"
+            >
+              {/* The catalog sits on a single frosted deck over the light bed. */}
+              <div className="deck p-4 sm:p-7">{children}</div>
             </main>
             <SiteFooter />
           </div>

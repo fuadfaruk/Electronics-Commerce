@@ -106,7 +106,7 @@ export function Drawer({
         type="button"
         aria-label="Close panel"
         onClick={onClose}
-        className="drawer-backdrop absolute inset-0 bg-black/40"
+        className="drawer-backdrop absolute inset-0 bg-[#0b2130]/45 backdrop-blur-sm"
       />
 
       <div
@@ -117,7 +117,7 @@ export function Drawer({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "drawer-panel relative flex h-full w-full flex-col bg-surface shadow-xl outline-none",
+          "drawer-panel relative flex h-full w-full flex-col bg-white/90 backdrop-blur-xl shadow-2xl outline-none",
           "sm:max-w-md",
           className,
         )}
@@ -146,7 +146,7 @@ export function Drawer({
         <div className="flex-1 overflow-y-auto overscroll-contain">{children}</div>
 
         {footer ? (
-          <div className="border-t border-border bg-surface px-4 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+          <div className="border-t border-border bg-white/70 px-4 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
             {footer}
           </div>
         ) : null}

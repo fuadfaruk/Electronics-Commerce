@@ -5,10 +5,10 @@ import {
   SearchField,
   SearchFieldSkeleton,
 } from "@/components/search/search-field";
-import { SITE_NAME } from "@/lib/site";
+import { SITE_NAME, SITE_SUBTITLE } from "@/lib/site";
 
 /**
- * Sticky header: wordmark, search, and the cart.
+ * Sticky header: illuminated wordmark, search, and the staged-modules cart.
  *
  * On phones the search sits on its own full-width row under the wordmark, which
  * is both easier to hit and closer to the thumb than a narrow inline field.
@@ -16,13 +16,18 @@ import { SITE_NAME } from "@/lib/site";
  */
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:h-16">
-        <Link
-          href="/"
-          className="shrink-0 text-lg font-semibold tracking-tight"
-        >
-          {SITE_NAME}
+    <header className="glass-bar sticky top-0 z-40 border-b border-border">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
+        <Link href="/" className="flex min-w-0 items-center gap-3">
+          <span className="illuminated-node" aria-hidden="true">
+            &bull;
+          </span>
+          <span className="min-w-0">
+            <span className="app-title block truncate">
+              {SITE_NAME.toUpperCase()}
+            </span>
+            <span className="app-subtitle block truncate">{SITE_SUBTITLE}</span>
+          </span>
         </Link>
 
         <div className="hidden max-w-xl flex-1 md:block">

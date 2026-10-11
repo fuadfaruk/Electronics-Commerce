@@ -32,7 +32,7 @@ export function BottomNav() {
         the page reserves for it. A border would add a stray pixel and clip the
         last row of content.
       */
-      className="fixed inset-x-0 bottom-0 z-40 bg-surface pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_0_var(--border)] md:hidden"
+      className="glass-bar fixed inset-x-0 bottom-0 z-40 pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_0_var(--border)] md:hidden"
     >
       <div className="mx-auto flex max-w-6xl">
         <Link

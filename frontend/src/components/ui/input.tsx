@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
  * whole page when the field is focused, which is jarring on a phone.
  */
 export const inputStyles =
-  "h-11 w-full rounded-xl border border-border-strong bg-surface px-3 text-base text-foreground placeholder:text-muted-foreground/80 focus:border-brand focus:outline-none focus-visible:outline-none disabled:opacity-50";
+  "h-11 w-full rounded-xl border border-border-strong bg-white/90 px-3 text-base text-foreground placeholder:text-muted-foreground/80 focus:border-brand focus:shadow-[0_0_0_3px_rgba(0,136,255,0.15)] focus:outline-none focus-visible:outline-none disabled:opacity-50";
 
 export function Input({
   className,

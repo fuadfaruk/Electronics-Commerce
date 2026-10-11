@@ -45,7 +45,7 @@ export function StickyBuyBar({
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-surface px-4 py-2 md:hidden">
+    <div className="glass-bar fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border px-4 py-2 md:hidden">
       <div className="flex items-center gap-3">
         <div className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">

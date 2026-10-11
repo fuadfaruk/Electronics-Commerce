@@ -76,12 +76,12 @@ export function QuickAddButton({ product }: { product: Product }) {
       }
       className={cn(
         // h-11 keeps the most-tapped control in the app at a full 44px.
-        "relative z-10 inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border text-sm font-medium transition-colors",
+        "relative z-10 inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition-all",
         soldOut
-          ? "border-border bg-surface-muted text-muted-foreground"
+          ? "bg-surface-muted text-muted-foreground"
           : justAdded
-            ? "border-success/30 bg-success-soft text-success"
-            : "border-border-strong bg-surface text-foreground hover:bg-surface-muted",
+            ? "bg-success text-white shadow-[0_0_14px_rgba(15,164,127,0.5)]"
+            : "bg-gradient-to-br from-[#0088ff] to-[#0066cc] text-white shadow-[0_4px_12px_rgba(0,136,255,0.35)] hover:shadow-[0_6px_18px_rgba(0,136,255,0.5)] active:scale-[0.97]",
       )}
     >
       {soldOut ? (

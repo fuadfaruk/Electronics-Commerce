@@ -7,15 +7,15 @@ import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 /** Short footer: category links, store facts we can actually stand behind. */
 export function SiteFooter() {
   return (
-    <footer className="mt-10 border-t border-border bg-surface">
+    <footer className="glass-bar mt-10 border-t border-border">
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div>
-          <p className="text-base font-semibold">{SITE_NAME}</p>
+          <p className="app-title">{SITE_NAME}</p>
           <p className="mt-1 text-sm text-muted-foreground">{SITE_TAGLINE}</p>
         </div>
 
         <nav aria-label="Categories" className="space-y-2">
-          <h2 className="text-sm font-semibold">Shop by category</h2>
+          <h2 className="bench-strip">Shop by category</h2>
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
             {CATEGORIES.map((category) => (
               <li key={category.slug}>
@@ -37,9 +37,16 @@ export function SiteFooter() {
           <li>Prices include VAT</li>
         </ul>
 
-        <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Frontend demo running on mock catalog data. Checkout is not built yet.
         </p>
+
+        {/* Telemetry readout, in the light-table bench style. */}
+        <div className="bench-strip flex flex-col gap-1 border-t border-border pt-4 md:flex-row md:items-center md:justify-between">
+          <span>Substrate: cash on delivery</span>
+          <span>Calibration: bKash &amp; Nagad</span>
+          <span>Status: free delivery over {formatBDT(FREE_DELIVERY_THRESHOLD)}</span>
+        </div>
       </div>
     </footer>
   );

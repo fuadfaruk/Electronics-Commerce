@@ -20,6 +20,7 @@ export default async function HomePage() {
     <div className="space-y-8">
       <section className="space-y-4">
         <div className="space-y-2">
+          <p className="bench-strip">Diffused light-bed catalog</p>
           <h1 className="text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
             Gadgets and parts, delivered across Bangladesh
           </h1>
@@ -30,15 +31,15 @@ export default async function HomePage() {
         </div>
 
         <ul className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-          <li className="flex items-center gap-2 rounded-xl bg-surface px-3 py-2.5">
+          <li className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5">
             <CashIcon className="size-5 shrink-0 text-brand" />
             Cash on delivery
           </li>
-          <li className="flex items-center gap-2 rounded-xl bg-surface px-3 py-2.5">
+          <li className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5">
             <TruckIcon className="size-5 shrink-0 text-brand" />
             Free delivery over {formatBDT(FREE_DELIVERY_THRESHOLD)}
           </li>
-          <li className="flex items-center gap-2 rounded-xl bg-surface px-3 py-2.5">
+          <li className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5">
             <ShieldIcon className="size-5 shrink-0 text-brand" />
             bKash and Nagad accepted
           </li>

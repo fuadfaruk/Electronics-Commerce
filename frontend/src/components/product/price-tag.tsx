@@ -27,7 +27,7 @@ export function PriceTag({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)}>
-      <span className={cn("font-semibold tabular-nums", SIZES[size])}>
+      <span className={cn("font-mono font-bold tabular-nums", SIZES[size])}>
         {formatBDT(price)}
       </span>
 

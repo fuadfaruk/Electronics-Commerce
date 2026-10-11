@@ -46,7 +46,7 @@ export function SearchField({ className }: { className?: string }) {
         placeholder="Search phones, laptops, components…"
         aria-label="Search products"
         enterKeyHint="search"
-        className={cn(inputStyles, "pl-10")}
+        className={cn(inputStyles, "rounded-full pl-10")}
       />
     </form>
   );
@@ -55,7 +55,7 @@ export function SearchField({ className }: { className?: string }) {
 export function SearchFieldSkeleton({ className }: { className?: string }) {
   return (
     <div
-      className={cn("h-11 rounded-xl bg-surface-muted", className)}
+      className={cn("h-11 rounded-full bg-surface-muted", className)}
       aria-hidden="true"
     />
   );
