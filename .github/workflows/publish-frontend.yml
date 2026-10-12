@@ -76,7 +76,7 @@ jobs:
               <handlers>
                 <add name="httpPlatformHandler" path="*" verb="*" modules="httpPlatformHandler" resourceType="Unspecified" />
               </handlers>
-              <httpPlatform processPath="node" arguments="server.js" startupTimeLimit="60" startupRetryCount="10" stdoutLogEnabled="true" stdoutLogFile=".\logs\node">
+              <httpPlatform processPath="node" arguments="server.js" startupTimeLimit="60" stdoutLogEnabled="true" stdoutLogFile=".\logs\node">
                 <environmentVariables>
                   <environmentVariable name="PORT" value="%HTTP_PLATFORM_PORT%" />
                   <environmentVariable name="HOSTNAME" value="127.0.0.1" />
