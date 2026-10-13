@@ -1,4 +1,4 @@
-﻿using electroapi.core.DTOs;
+﻿using electroapi.core.DTOs.Products;
 using electroapi.core.Entities;
 using electroapi.core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
@@ -28,10 +28,15 @@ namespace electroapi.api.Controllers
         {
             Product product = new Product
             {
+                ProductId = Guid.NewGuid(),
+                ProductSlug = newProduct.ProductSlug,
                 ProductName = newProduct.ProductName,
-                ProductDescription = newProduct.ProductDescription,
-                ProductPrice = newProduct.ProductPrice,
-                ProductQuantity = newProduct.ProductQuantity
+                ProductCategorySlug = newProduct.ProductCategorySlug ?? string.Empty,
+                ProductDescription = newProduct.ProductDescription ?? string.Empty,
+                ProductPrice = newProduct.ProductPrice ?? 0,
+                ProductStockQuantity = newProduct.ProductStockQuantity ?? 0,
+                ProductImage = newProduct.ProductImage ?? new List<string>(),
+                ProductSpecs = newProduct.ProductSpecs ?? new List<ProductSpec>()
             };
             var createdProduct = await _productRepository.CreateProductAsync(product);
 

@@ -61,18 +61,24 @@ namespace electroapi.infrastructure.Migrations
                     b.Property<Guid?>("OrderId")
                         .HasColumnType("char(36)");
 
+                    b.Property<string>("ProductCategorySlug")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("ProductDescription")
-                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("ProductName")
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<int>("ProductPrice")
+                    b.Property<int?>("ProductPrice")
                         .HasColumnType("int");
 
-                    b.Property<int>("ProductQuantity")
+                    b.Property<string>("ProductSlug")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("ProductStockQuantity")
                         .HasColumnType("int");
 
                     b.HasKey("ProductId");
