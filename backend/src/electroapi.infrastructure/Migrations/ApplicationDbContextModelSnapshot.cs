@@ -88,6 +88,29 @@ namespace electroapi.infrastructure.Migrations
                     b.ToTable("Products");
                 });
 
+            modelBuilder.Entity("electroapi.core.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
             modelBuilder.Entity("electroapi.core.Entities.User", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -123,11 +146,58 @@ namespace electroapi.infrastructure.Migrations
                     b.HasOne("electroapi.core.Entities.Order", null)
                         .WithMany("Products")
                         .HasForeignKey("OrderId");
+
+                    b.OwnsMany("electroapi.core.Entities.ProductSpec", "ProductSpecs", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("char(36)");
+
+                            b1.Property<Guid>("ProductId")
+                                .HasColumnType("char(36)");
+
+                            b1.Property<string>("SpecName")
+                                .IsRequired()
+                                .HasColumnType("longtext")
+                                .HasColumnName("SpecName");
+
+                            b1.Property<string>("SpecValue")
+                                .IsRequired()
+                                .HasColumnType("longtext")
+                                .HasColumnName("SpecValue");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("ProductId");
+
+                            b1.ToTable("ProductSpecs", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ProductId");
+                        });
+
+                    b.Navigation("ProductSpecs");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.ProductImage", b =>
+                {
+                    b.HasOne("electroapi.core.Entities.Product", "Product")
+                        .WithMany("ProductImages")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.Order", b =>
                 {
                     b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.Product", b =>
+                {
+                    b.Navigation("ProductImages");
                 });
 #pragma warning restore 612, 618
         }

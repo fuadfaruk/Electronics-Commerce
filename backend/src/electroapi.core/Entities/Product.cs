@@ -3,6 +3,7 @@
 namespace electroapi.core.Entities
 {
     public sealed record ProductSpec(string SpecName, string SpecValue);
+
     public sealed class Product
     {   
         public required Guid ProductId { get; set; }
@@ -12,9 +13,7 @@ namespace electroapi.core.Entities
         public string? ProductDescription { get; set; }
         public int? ProductPrice { get; set; }
         public int? ProductStockQuantity { get; set; }
-        [NotMapped]
-        public List<string>? ProductImage { get; set; }
-        [NotMapped]
+        public List<ProductImage>? ProductImages { get; set; }
         public List<ProductSpec>? ProductSpecs { get; set; }
     }
 }

@@ -4,6 +4,7 @@ using electroapi.core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Linq;
 
 namespace electroapi.api.Controllers
 {
@@ -31,13 +32,16 @@ namespace electroapi.api.Controllers
                 ProductId = Guid.NewGuid(),
                 ProductSlug = newProduct.ProductSlug,
                 ProductName = newProduct.ProductName,
-                ProductCategorySlug = newProduct.ProductCategorySlug ?? string.Empty,
-                ProductDescription = newProduct.ProductDescription ?? string.Empty,
-                ProductPrice = newProduct.ProductPrice ?? 0,
-                ProductStockQuantity = newProduct.ProductStockQuantity ?? 0,
-                ProductImage = newProduct.ProductImage ?? new List<string>(),
-                ProductSpecs = newProduct.ProductSpecs ?? new List<ProductSpec>()
+                ProductCategorySlug = newProduct.ProductCategorySlug,
+                ProductDescription = newProduct.ProductDescription,
+                ProductPrice = newProduct.ProductPrice,
+                ProductStockQuantity = newProduct.ProductStockQuantity,
+                ProductImages = newProduct.ProductImage?.Select((url, idx) => new ProductImage { Id = Guid.NewGuid(), Url = url ?? string.Empty, Order = idx }).ToList() ?? new List<ProductImage>(),
+                ProductSpecs = newProduct.ProductSpecs
             };
+
+            Console.WriteLine($"Creating product: {product.ProductName} with ID: {product.ProductId}");
+
             var createdProduct = await _productRepository.CreateProductAsync(product);
 
             return Ok(product);
