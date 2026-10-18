@@ -14,8 +14,4 @@
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\electroapi.core\ElectroApi.Core.csproj" />
-  </ItemGroup>
-
 </Project>

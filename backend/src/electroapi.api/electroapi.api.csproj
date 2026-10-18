@@ -17,9 +17,4 @@
     <PackageReference Include="Scalar.AspNetCore" Version="2.18.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\electroapi.core\ElectroApi.Core.csproj" />
-    <ProjectReference Include="..\electroapi.infrastructure\ElectroApi.Infrastructure.csproj" />
-  </ItemGroup>
-
 </Project>
