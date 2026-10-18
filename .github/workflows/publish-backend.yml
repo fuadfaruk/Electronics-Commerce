@@ -1,4 +1,4 @@
-name: Build, publish and deploy backend electroapi.api
+name: Build, publish and deploy backend ElectroApi.Api
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore backend for Windows deployment
-        run: dotnet restore backend/electro-api.slnx --runtime win-x64
+        run: dotnet restore backend/ElectroApi.slnx --runtime win-x64
 
-      - name: Publish electroapi.api
-        run: dotnet publish backend/src/electroapi.api/electroapi.api.csproj -c Release -o ${{ github.workspace }}/publish/electroapi.api  
+      - name: Publish ElectroApi.Api
+        run: dotnet publish backend/src/ElectroApi.Api/ElectroApi.Api.csproj -c Release -o ${{ github.workspace }}/publish/ElectroApi.Api  
 
       - name: Deploy to MonsterASP.NET via Web Deploy
         shell: pwsh
@@ -37,9 +37,9 @@ jobs:
             throw "msdeploy.exe was not found at '$msdeploy'."
           }
 
-          $sourcePath = Join-Path "${{ github.workspace }}" "publish/electroapi.api"
-          if (-not (Test-Path -LiteralPath (Join-Path $sourcePath "electroapi.api.dll"))) {
-            throw "Publish output is missing electroapi.api.dll at '$sourcePath'."
+          $sourcePath = Join-Path "${{ github.workspace }}" "publish/ElectroApi.Api"
+          if (-not (Test-Path -LiteralPath (Join-Path $sourcePath "ElectroApi.Api.dll"))) {
+            throw "Publish output is missing ElectroApi.Api.dll at '$sourcePath'."
           }
 
           $site     = $env:BACK_WEBSITE_NAME
