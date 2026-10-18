@@ -3,14 +3,13 @@ import type { PaymentMethod, Product } from "@/types/domain";
 /**
  * Mock catalog.
  *
- * This is the only source of product data in the frontend today: there is no
- * product endpoint on the backend and `ApplicationDbContext` has no
- * `DbSet<Product>`, so nothing can be fetched even if we wanted to.
+ * Used while `NEXT_PUBLIC_USE_MOCK_DATA` is true. The live catalog comes from
+ * `GET /api/v1/Product` and is mapped into this same shape by
+ * `src/lib/api/adapters.ts`.
  *
- * Prices are whole BDT taka and VAT-inclusive, matching the `int`
- * `Product.ProductPrice` field. Stock mirrors `Product.ProductQuantity`.
- * `brand`, `categorySlug`, `images`, `specs`, `compareAtPrice` and `featured`
- * have no backend equivalent yet — see the README gap list.
+ * Prices are whole BDT taka and VAT-inclusive. Stock, brand, category, images,
+ * specs, compare price and featured map to the corresponding `Product` fields
+ * on the API.
  */
 
 /**

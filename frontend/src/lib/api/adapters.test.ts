@@ -8,7 +8,9 @@ import {
   createId,
   deliveryAddressToLines,
   orderStatusForPayment,
+  productImagesFor,
   productSlugFor,
+  productSpecsFor,
   productToApiProduct,
 } from "@/lib/api/adapters";
 import { ApiOrderStatus } from "@/types/api";
@@ -16,11 +18,50 @@ import type { ApiProduct } from "@/types/api";
 import type { CartLine, DeliveryAddress } from "@/types/domain";
 
 const apiProduct: ApiProduct = {
-  id: "00000000-0000-4000-8000-000000000007",
+  productId: "00000000-0000-4000-8000-000000000007",
+  productSlug: "test-product-slug",
   productName: "Test Product",
+  brandName: "Acme",
+  productCategorySlug: "smartphones",
   productDescription: "A thing that exists.",
   productPrice: 2500,
-  productQuantity: 6,
+  productComparePrice: 3000,
+  productStockQuantity: 6,
+  productImages: [
+    {
+      id: "10000000-0000-4000-8000-000000000002",
+      url: "/images/second.jpg",
+      order: 2,
+    },
+    {
+      id: "10000000-0000-4000-8000-000000000001",
+      url: "/images/first.jpg",
+      order: 1,
+    },
+    {
+      id: "10000000-0000-4000-8000-000000000000",
+      url: "   ",
+      order: 0,
+    },
+  ],
+  productSpecifications: [
+    {
+      productSpecificationId: "20000000-0000-4000-8000-000000000001",
+      productSpecificationKey: "Display",
+      productSpecificationValue: '6.1" Super Retina XDR',
+    },
+    {
+      productSpecificationId: "20000000-0000-4000-8000-000000000002",
+      productSpecificationKey: " ",
+      productSpecificationValue: "Ignored without a key",
+    },
+    {
+      productSpecificationId: "20000000-0000-4000-8000-000000000003",
+      productSpecificationKey: "Battery",
+      productSpecificationValue: "  ",
+    },
+  ],
+  featured: true,
 };
 
 const address: DeliveryAddress = {
@@ -34,7 +75,7 @@ const address: DeliveryAddress = {
 };
 
 const cartLine: CartLine = {
-  productId: apiProduct.id,
+  productId: apiProduct.productId,
   slug: "test-product-00000007",
   name: "Test Product",
   brand: "Unbranded",
@@ -45,59 +86,139 @@ const cartLine: CartLine = {
 };
 
 describe("productSlugFor", () => {
-  it("derives a slug from the name and the id tail", () => {
-    expect(productSlugFor(apiProduct)).toBe("test-product-00000007");
+  it("uses the slug supplied by the API", () => {
+    expect(productSlugFor(apiProduct)).toBe("test-product-slug");
   });
 
-  it("keeps slugs distinct for same-named products", () => {
-    const other: ApiProduct = { ...apiProduct, id: "00000000-0000-4000-8000-000000000008" };
-    expect(productSlugFor(other)).not.toBe(productSlugFor(apiProduct));
+  it("falls back to the name and id tail for legacy rows", () => {
+    expect(productSlugFor({ ...apiProduct, productSlug: " " })).toBe(
+      "test-product-00000007",
+    );
+  });
+
+  it("keeps derived slugs distinct for same-named products", () => {
+    const other: ApiProduct = {
+      ...apiProduct,
+      productSlug: "",
+      productId: "00000000-0000-4000-8000-000000000008",
+    };
+    expect(productSlugFor(other)).not.toBe(
+      productSlugFor({ ...apiProduct, productSlug: "" }),
+    );
   });
 });
 
 describe("apiProductToProduct", () => {
-  it("maps the fields the API actually has", () => {
+  it("maps the fields the API provides", () => {
     const product = apiProductToProduct(apiProduct);
-    expect(product.id).toBe(apiProduct.id);
-    expect(product.name).toBe("Test Product");
-    expect(product.description).toBe("A thing that exists.");
-    expect(product.price).toBe(2500);
-    expect(product.stock).toBe(6);
+
+    expect(product).toMatchObject({
+      id: apiProduct.productId,
+      slug: "test-product-slug",
+      name: "Test Product",
+      brand: "Acme",
+      categorySlug: "smartphones",
+      description: "A thing that exists.",
+      price: 2500,
+      compareAtPrice: 3000,
+      stock: 6,
+      featured: true,
+    });
   });
 
-  it("synthesises the fields the API does not have", () => {
+  it("orders images and drops blank URLs", () => {
     const product = apiProductToProduct(apiProduct);
+    expect(product.images).toEqual([
+      "/images/first.jpg",
+      "/images/second.jpg",
+    ]);
+  });
+
+  it("maps specifications and drops incomplete rows", () => {
+    const product = apiProductToProduct(apiProduct);
+    expect(product.specs).toEqual([
+      { label: "Display", value: '6.1" Super Retina XDR' },
+    ]);
+  });
+
+  it("fills in fallbacks the API cannot express", () => {
+    const product = apiProductToProduct({
+      ...apiProduct,
+      brandName: null,
+      productCategorySlug: null,
+      productDescription: null,
+      productPrice: null,
+      productComparePrice: null,
+      productStockQuantity: null,
+      productImages: null,
+      productSpecifications: null,
+      featured: undefined,
+    });
+
     expect(product.brand).toBe("Unbranded");
     expect(product.categorySlug).toBe(UNCATEGORIZED.slug);
+    expect(product.description).toBe("");
+    expect(product.price).toBe(0);
+    expect(product.compareAtPrice).toBeUndefined();
+    expect(product.stock).toBe(0);
     expect(product.images).toEqual([UNCATEGORIZED.image]);
     expect(product.specs).toEqual([]);
+    expect(product.featured).toBe(false);
+  });
+
+  it("does not treat a compare price below the price as a discount", () => {
+    const product = apiProductToProduct({
+      ...apiProduct,
+      productComparePrice: 2000,
+    });
     expect(product.compareAtPrice).toBeUndefined();
   });
 });
 
+describe("productImagesFor", () => {
+  it("uses the category placeholder when the product has no images", () => {
+    expect(
+      productImagesFor({
+        productImages: [],
+        productCategorySlug: "smartphones",
+      }),
+    ).toEqual(["/placeholders/smartphones.svg"]);
+  });
+});
+
+describe("productSpecsFor", () => {
+  it("returns nothing when the product has no specifications", () => {
+    expect(productSpecsFor({ productSpecifications: null })).toEqual([]);
+  });
+});
+
 describe("productToApiProduct", () => {
-  it("sends only what the entity can accept", () => {
+  it("sends the scalar fields the entity accepts", () => {
     const product = apiProductToProduct(apiProduct);
     const wire = productToApiProduct(product);
 
-    expect(Object.keys(wire).sort()).toEqual(
-      [
-        "id",
-        "productDescription",
-        "productName",
-        "productPrice",
-        "productQuantity",
-      ].sort(),
-    );
+    expect(wire).toEqual({
+      productId: apiProduct.productId,
+      productSlug: "test-product-slug",
+      productName: "Test Product",
+      brandName: "Acme",
+      productCategorySlug: "smartphones",
+      productDescription: "A thing that exists.",
+      productPrice: 2500,
+      productComparePrice: 3000,
+      productStockQuantity: 6,
+      featured: true,
+    });
   });
 });
 
 describe("cartLineToApiProduct", () => {
   it("uses the cart quantity, not the stock level", () => {
     const wire = cartLineToApiProduct(cartLine);
-    expect(wire.productQuantity).toBe(2);
+    expect(wire.productStockQuantity).toBe(2);
     expect(wire.productPrice).toBe(2500);
     expect(wire.productDescription).toBe("");
+    expect(wire.productSlug).toBe(cartLine.slug);
   });
 });
 

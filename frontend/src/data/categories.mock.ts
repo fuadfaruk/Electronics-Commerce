@@ -3,8 +3,9 @@ import type { Category } from "@/types/domain";
 /**
  * Catalog categories.
  *
- * The backend `Product` entity has no category field yet, so this list is part
- * of the mock layer. See the README gap list.
+ * The API has no category endpoint, so the display metadata stays frontend-
+ * owned. API products join to this list through `ProductCategorySlug`; an
+ * unknown slug falls back to the uncategorised bucket below.
  */
 export const CATEGORIES: Category[] = [
   {

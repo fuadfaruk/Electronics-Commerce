@@ -10,17 +10,8 @@ import { StockBadge } from "@/components/product/stock-badge";
 import { CashIcon, TruckIcon } from "@/components/ui/icons";
 import { getCategory } from "@/data/categories.mock";
 import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/lib/cart/pricing";
-import {
-  getAllProductSlugs,
-  getProductBySlug,
-  getRelatedProducts,
-} from "@/lib/catalog/queries";
+import { getProductBySlug, getRelatedProducts } from "@/lib/catalog/queries";
 import { formatBDT } from "@/lib/money";
-
-export async function generateStaticParams() {
-  const slugs = await getAllProductSlugs();
-  return slugs.map((slug) => ({ slug }));
-}
 
 export async function generateMetadata({
   params,

@@ -36,15 +36,15 @@ export interface Product {
   /** Joins to `Category.slug`. Falls back to the uncategorised bucket. */
   categorySlug: string;
   description: string;
-  /** Whole taka, VAT inclusive. */
-  price?: number;
-  /** Mock-only: original price when the item is discounted. */
+  /** Whole taka, VAT inclusive. Missing API prices are mapped to 0. */
+  price: number;
+  /** Original price when discounted; `ProductComparePrice` on the API. */
   compareAtPrice?: number;
-  /** Mirrors `Product.ProductQuantity`. */
+  /** Mirrors `Product.ProductStockQuantity`. */
   stock: number;
   images: string[];
   specs: ProductSpec[];
-  /** Mock-only: drives the home "Featured" rail. */
+  /** Drives the home "Featured" rail; `Product.Featured` on the API. */
   featured?: boolean;
 }
 

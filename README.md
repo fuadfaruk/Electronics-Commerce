@@ -7,10 +7,9 @@ Web API backed by MySQL through Entity Framework Core.
 Prices are in Bangladeshi taka (BDT), VAT inclusive. Cash on delivery, bKash and Nagad
 are the intended payment methods.
 
-> **Status:** early development. The storefront currently reads its catalog from
-> checked-in mock data in `frontend/src/data`, not from the API. The backend exposes
-> product and order endpoints, but the two halves are not wired together yet. See
-> [Project status](#project-status) for the remaining work.
+> **Status:** early development. The storefront reads from checked-in mock data by
+> default and can switch to the live catalog with `NEXT_PUBLIC_USE_MOCK_DATA=false`.
+> See [Project status](#project-status) for the remaining work.
 
 ## Features
 
@@ -153,7 +152,9 @@ npm run dev
 ```
 
 The storefront runs at `http://localhost:3000`. It needs no API or environment
-configuration while mock data is enabled.
+configuration while mock data is enabled. To use the live catalog, set
+`NEXT_PUBLIC_USE_MOCK_DATA=false` in `.env.local` and make sure the API is running
+on `NEXT_PUBLIC_API_BASE_URL`.
 
 ## Configuration
 
@@ -169,7 +170,7 @@ configuration while mock data is enabled.
 | Variable                     | Default                 | Purpose                                           |
 | ---------------------------- | ----------------------- | ------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE_URL`   | `http://localhost:5249` | Base URL of the ASP.NET API                        |
-| `NEXT_PUBLIC_USE_MOCK_DATA`  | `true`                  | While true, the catalog is served entirely from mock data |
+| `NEXT_PUBLIC_USE_MOCK_DATA`  | `true`                  | `true` serves mock data; `false` reads `GET /api/v1/Product` |
 
 `NEXT_PUBLIC_*` values are inlined at build time, so they must be present when
 `npm run build` runs, not just at runtime.
@@ -195,19 +196,30 @@ Example product payload:
 {
   "productSlug": "pixel-9-pro",
   "productName": "Pixel 9 Pro",
+  "brandName": "Google",
   "productCategorySlug": "smartphones",
   "productDescription": "6.3-inch flagship with a triple camera.",
   "productPrice": 125000,
+  "productComparePrice": 135000,
   "productStockQuantity": 8,
-  "productImage": ["https://example.com/pixel-9-pro.jpg"],
-  "productSpecs": [
-    { "specName": "Display", "specValue": "6.3 inch LTPO OLED" },
-    { "specName": "Storage", "specValue": "256 GB" }
-  ]
+  "productImages": [
+    { "url": "https://example.com/pixel-9-pro.jpg", "order": 0 }
+  ],
+  "productSpecifications": [
+    {
+      "productSpecificationKey": "Display",
+      "productSpecificationValue": "6.3 inch LTPO OLED"
+    },
+    {
+      "productSpecificationKey": "Storage",
+      "productSpecificationValue": "256 GB"
+    }
+  ],
+  "featured": true
 }
 ```
 
-Order statuses are `Pending`, `Paid`, `Shipped`, `Delivered` and `Cancelled`.
+Order statuses are `Pending`, `Paid`, `Shipped` and `Cancelled`.
 
 ## Data model
 
@@ -215,12 +227,12 @@ Order statuses are `Pending`, `Paid`, `Shipped`, `Delivered` and `Cancelled`.
 | -------------- | --------------------------------------------------------------------- |
 | `Order`        | Order id, user id, product ids, product list, date, address lines, status |
 | `User`         | Id, name and email only; no password or roles yet                     |
-| `Product`      | Slug, name, category slug, description, integer price, stock, images, specs |
+| `Product`      | Slug, name, brand, category slug, description, decimal price, compare price, stock, images, specs, featured |
 | `ProductImage` | Image URL and display order for a product                             |
-| `ProductSpec`  | Key/value specification owned by a product                            |
+| `ProductSpecification` | Key/value specification owned by a product                    |
 
-The database tables are `Orders`, `Products`, `ProductImages`, `ProductSpecs` and
-`User`.
+The database tables are `Orders`, `Products`, `ProductImage`, `ProductSpecification`
+and `User`.
 
 ## Testing and quality checks
 
@@ -269,7 +281,7 @@ Optional repository variables for the frontend build: `NEXT_PUBLIC_API_BASE_URL`
 
 Working:
 
-- Storefront UI, mock catalog, filtering, cart drawer and totals.
+- Storefront UI with a switchable mock/API catalog, filtering, cart drawer and totals.
 - Product list/create API with images and specifications.
 - Order list/create/update/status API.
 - MySQL schema and migrations.
@@ -277,13 +289,12 @@ Working:
 
 Next steps:
 
-- **Connect the storefront to the API.** `frontend/src/lib/catalog/queries.ts` is the
-  single data-access seam; replace mock lookups with `fetch` calls and run responses
-  through the adapters in `frontend/src/lib/api/adapters.ts`.
-- **Add CORS.** The API has no CORS policy, so a browser app on another origin cannot
-  call it yet.
 - **Add catalog endpoints by slug and category.** The API currently supports only
-  list-all and create.
+  list-all and create; the frontend resolves slugs and filters in memory.
+- **Include images and specifications in the product query.** `GetAllProductsAsync`
+  currently returns both navigation lists empty.
+- **Add CORS if browser-side API calls are introduced.** Catalog reads happen
+  server-side today, so they are unaffected.
 - **Build checkout.** There is no checkout page, order confirmation or order history;
   the cart lives only in the browser.
 - **Add accounts.** `User` has no password or roles, and there is no auth endpoint.

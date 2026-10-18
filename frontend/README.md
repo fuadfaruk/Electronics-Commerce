@@ -3,9 +3,10 @@
 The customer-facing storefront for an electronics and parts shop. Next.js App
 Router, TypeScript, Tailwind CSS, phone-first.
 
-**This app currently makes zero network requests.** The entire catalog is mock
-data. It is designed to sit on top of the ASP.NET API in `../backend` — see the
-[gap list](#backend-gap-list) for what that API still needs.
+The catalog reads from checked-in mock data by default, so the app runs with no
+backend. Set `NEXT_PUBLIC_USE_MOCK_DATA=false` to read the live catalog from
+`GET /api/v1/Product` instead — every screen goes through the same data seam.
+See the [gap list](#backend-gap-list) for what the API still needs.
 
 ## Requirements
 
@@ -16,8 +17,12 @@ data. It is designed to sit on top of the ASP.NET API in `../backend` — see th
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000
+npm run dev          # http://localhost:3000, mock data by default
 ```
+
+To check the storefront against the API, copy `.env.local.example` to
+`.env.local`, set `NEXT_PUBLIC_USE_MOCK_DATA=false`, start the backend, and
+restart the dev server (public env values are inlined at startup).
 
 | Script              | What it does                                    |
 | ------------------- | ----------------------------------------------- |
@@ -63,6 +68,7 @@ src/
   data/                    mock catalog + categories (the only product source)
   lib/
     api/adapters.ts        domain <-> wire mapping, order payload builder
+    api/products.ts        GET /api/v1/Product client
     cart/                  totals (pure) + pricing constants + store
     catalog/               filters (pure) + queries (the data seam)
     money.ts               ৳ formatting
@@ -75,22 +81,30 @@ public/placeholders/       checked-in SVG placeholder artwork
 
 ## The data layer, and how to swap it
 
-Every screen reads the catalog through `src/lib/catalog/queries.ts`. That is the
-only file that needs to change when the API is ready: each function becomes a
-`fetch` and its result is passed through `apiProductToProduct` from
-`src/lib/api/adapters.ts`.
+Every screen reads the catalog through `src/lib/catalog/queries.ts`. The source
+is chosen by `NEXT_PUBLIC_USE_MOCK_DATA`:
 
-The mock is intentionally richer than the API can express. The adapter
-**synthesises** what is missing — missing brand becomes `"Unbranded"`, missing
-category becomes `"Uncategorized"`, images fall back to a placeholder and specs
-become an empty list — so it is obvious in code exactly what has to be added
-server-side.
+- `true` (default) returns `src/data/products.mock.ts` and makes no request.
+- `false` calls `src/lib/api/products.ts`, which fetches
+  `${NEXT_PUBLIC_API_BASE_URL}/api/v1/Product`, maps each row through
+  `apiProductToProduct`, and lets the same filters and sort run on the result.
+
+The fetch is server-side, so the API does not need CORS for these reads. It uses
+`cache: "no-store"`, which also keeps catalog pages dynamic: a product added on
+the server is visible on the next request without rebuilding the frontend.
+
+The adapter is defensive about optional entity fields: a missing brand becomes
+`"Unbranded"`, a missing category becomes `"Uncategorized"`, missing imagery
+falls back to the category placeholder, missing prices and stock become zero,
+and missing specifications become an empty list. Images are ordered by
+`ProductImage.Order`, and specifications are mapped from the key/value pair.
 
 ### Prices and totals
 
-- Prices are whole BDT taka and VAT-inclusive, matching the `int`
-  `ProductPrice` field. `Intl.NumberFormat` renders BDT as `"BDT 12,500"` rather
-  than with the taka sign, so `src/lib/money.ts` composes `৳12,500` manually.
+- Prices are whole BDT taka and VAT-inclusive. The entity's `ProductPrice` is a
+  `decimal?`, so the adapter rounds it and treats a missing value as zero.
+  `Intl.NumberFormat` renders BDT as `"BDT 12,500"` rather than with the taka
+  sign, so `src/lib/money.ts` composes `৳12,500` manually.
 - Delivery fee and the free-delivery threshold live in
   `src/lib/cart/pricing.ts` (`৳80`, free over `৳5,000`). One place to change.
 - `src/lib/cart/totals.ts` and `src/lib/catalog/filters.ts` are pure functions,
@@ -115,7 +129,9 @@ server-side.
 
 `npm test` covers the logic most likely to break silently: cart totals including
 the exact free-delivery boundary, catalog search/filter/sort edge cases, facet
-counts, and the API adapters and order payload. Components are verified by hand.
+counts, the mock-backed catalog queries, the product API client's request and
+error handling, and the API adapters and order payload. Components are verified
+by hand.
 
 Before handing work back: `npm run build`, `npm run lint`, `npm test`.
 
@@ -125,27 +141,30 @@ Before handing work back: `npm run build`, `npm run lint`, `npm test`.
 the things the storefront will need from it. Nothing here is a criticism of the
 learning project — it is a checklist for when the catalog goes live.
 
-1. **No product endpoint.** `OrderController` is the only controller. The
-   storefront needs list, by-slug and by-category endpoints.
-2. **No `DbSet<Product>`.** `ApplicationDbContext` only declares `Orders`, so
-   even with a controller there is nothing to query.
-3. **`Product` is missing presentation fields:** image reference, category,
-   brand and a slug. It has name, description, price and quantity only. Without
-   these, the listing and detail screens can only show placeholders.
-4. **`ProductPrice` is an `int`.** Fine for whole taka; it cannot represent
-   minor units if you ever price in a currency with decimals.
-5. **No CORS policy** in `Program.cs`. A browser app on another origin cannot
-   call the API until one is added. (Not needed today — the app makes no calls.)
-6. **No auth endpoint**, and `User` has no password or roles. That matches the
+1. **No product-by-slug endpoint.** The frontend reads the full list from
+   `GET /api/v1/Product` and resolves the slug in memory.
+2. **No category endpoint.** Category names and tile artwork still come from
+   `src/data/categories.mock.ts`; products join to them by
+   `ProductCategorySlug`. Unknown slugs display as "Uncategorized".
+3. **`GetAllProductsAsync` does not `Include` images or specifications.** The
+   mapper handles both lists, but EF returns them empty until the query loads
+   the navigation properties, so detail pages fall back to placeholders.
+4. **No paging, filtering or sorting on the endpoint.** The frontend fetches the
+   full catalog per request and filters it server-side.
+5. **`ProductPrice` is a `decimal?`.** The UI is whole taka, so the adapter
+   rounds it and treats null as zero.
+6. **No CORS policy** in `Program.cs`. Not needed for the current server-side
+   catalog reads, but required if a browser component calls the API directly.
+7. **No auth endpoint**, and `User` has no password or roles. That matches the
    guest-checkout design, but order history would need accounts.
-7. **`Order.ProductIds` is a single `Guid`** while `Products` is a
-   `List<Product>`. Neither can be right alongside the other; the adapter
-   currently sends the first line id plus the full product list.
-8. **`Order.Address` is a `List<string>`** rather than a structured address, so
+8. **Order contracts are out of sync.** `ApiOrder` still models `id` and a
+   single-string `productIds`, while `CreateOrderRequest` expects `orderId`,
+   `userId` and a `List<Guid>`. The catalog works independently; order wiring
+   needs its own pass before checkout.
+9. **`Order.Address` is a `List<string>`** rather than a structured address, so
    the frontend flattens form fields into ordered lines.
-9. **`POST /api/Order` takes and returns the EF entity directly**, and the
-   controller's own comments note both DTOs and API versioning as follow-ups.
-   Untouched.
+10. **`POST /api/Order` takes and returns the EF entity directly**, and the
+    controller's own comments note both DTOs and API versioning as follow-ups.
 
 `src/types/api.ts` mirrors the entities as they are today, and
 `src/lib/api/adapters.ts` maps them onto the richer UI shapes.

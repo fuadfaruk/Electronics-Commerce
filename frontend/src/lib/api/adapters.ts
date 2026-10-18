@@ -1,64 +1,125 @@
-import { UNCATEGORIZED } from "@/data/categories.mock";
+import { UNCATEGORIZED, getCategory } from "@/data/categories.mock";
 import { slugify } from "@/lib/slug";
 import { ApiOrderStatus } from "@/types/api";
-import type { ApiOrder, ApiProduct, CreateOrderRequest } from "@/types/api";
+import type {
+  ApiOrder,
+  ApiProduct,
+  ApiProductImage,
+  ApiProductSpecification,
+  CreateOrderRequest,
+} from "@/types/api";
 import type {
   CartLine,
   DeliveryAddress,
   PaymentMethodId,
   Product,
+  ProductSpec,
 } from "@/types/domain";
 
 /**
  * Adapters between the frontend domain and the ASP.NET wire shapes.
  *
- * This is the file that documents, in code, exactly what the current backend
- * cannot express. Everything marked "synthesised" has no server field today.
+ * The current `Product` entity carries a slug, brand, category, images and
+ * specifications, so the catalogue screens can show real data. Optional fields
+ * still receive stable fallbacks so a partially filled row never breaks a page.
  */
 
 /** `Guid.Empty` — used where a non-nullable Guid has no meaningful value yet. */
 export const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
 
+/** Whole taka, rounded; anything missing or non-finite becomes zero. */
+function toTaka(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : 0;
+}
+
+/** Non-negative whole units; anything missing or non-finite becomes zero. */
+function toStock(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
 /**
  * Builds a URL-safe, collision-resistant slug from a product name.
- * Synthesised: `Product` has no slug field, so it is derived from the name and
- * disambiguated with the tail of the id.
+ *
+ * The entity has `ProductSlug`, so it is used when present. Older rows (or a
+ * future endpoint that omits it) fall back to the name plus the id tail.
  */
 export function productSlugFor(api: ApiProduct): string {
-  const suffix = api.id.replace(/-/g, "").slice(-8);
+  const slug = api.productSlug?.trim();
+  if (slug) return slug;
+
+  const suffix = api.productId.replace(/-/g, "").slice(-8);
   return `${slugify(api.productName)}-${suffix}`;
 }
 
-/**
- * Maps a wire product into the shape the UI expects.
- *
- * `brand`, `categorySlug`, `images` and `specs` are synthesised because the
- * entity carries none of them; a real integration would need those fields
- * before the listing and detail screens could show anything but placeholders.
- */
+/** Uploaded imagery in display order, or the category placeholder. */
+export function productImagesFor(
+  api: Pick<ApiProduct, "productImages" | "productCategorySlug">,
+): string[] {
+  const images = [...(api.productImages ?? [])]
+    .filter(
+      (image: ApiProductImage) =>
+        typeof image?.url === "string" && image.url.trim().length > 0,
+    )
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((image) => image.url.trim());
+
+  if (images.length > 0) return images;
+
+  return [getCategory(api.productCategorySlug ?? undefined).image];
+}
+
+/** Wire specifications as UI spec rows, dropping blank keys or values. */
+export function productSpecsFor(
+  api: Pick<ApiProduct, "productSpecifications">,
+): ProductSpec[] {
+  return (api.productSpecifications ?? [])
+    .map((spec: ApiProductSpecification) => ({
+      label: spec.productSpecificationKey?.trim() ?? "",
+      value: spec.productSpecificationValue?.trim() ?? "",
+    }))
+    .filter((spec) => spec.label.length > 0 && spec.value.length > 0);
+}
+
+/** Maps a wire product into the shape the UI expects. */
 export function apiProductToProduct(api: ApiProduct): Product {
+  const categorySlug =
+    api.productCategorySlug?.trim() || UNCATEGORIZED.slug;
+  const price = toTaka(api.productPrice);
+  const compareAtPrice = toTaka(api.productComparePrice);
+
   return {
-    id: api.id,
+    id: api.productId,
     slug: productSlugFor(api),
     name: api.productName,
-    brand: "Unbranded",
-    categorySlug: UNCATEGORIZED.slug,
-    description: api.productDescription,
-    price: api.productPrice,
-    stock: api.productQuantity,
-    images: [UNCATEGORIZED.image],
-    specs: [],
+    brand: api.brandName?.trim() || "Unbranded",
+    categorySlug,
+    description: api.productDescription ?? "",
+    price,
+    compareAtPrice: compareAtPrice > price ? compareAtPrice : undefined,
+    stock: toStock(api.productStockQuantity),
+    images: productImagesFor(api),
+    specs: productSpecsFor(api),
+    featured: api.featured === true,
   };
 }
 
-/** The inverse: only fields the entity actually has are carried over. */
+/** The inverse: the scalar fields the entity can accept. */
 export function productToApiProduct(product: Product): ApiProduct {
   return {
-    id: product.id,
+    productId: product.id,
+    productSlug: product.slug,
     productName: product.name,
+    brandName: product.brand,
+    productCategorySlug: product.categorySlug,
     productDescription: product.description,
     productPrice: product.price,
-    productQuantity: product.stock,
+    productComparePrice: product.compareAtPrice ?? null,
+    productStockQuantity: product.stock,
+    featured: product.featured ?? false,
   };
 }
 
@@ -68,11 +129,13 @@ export function productToApiProduct(product: Product): ApiProduct {
  */
 export function cartLineToApiProduct(line: CartLine): ApiProduct {
   return {
-    id: line.productId,
+    productId: line.productId,
+    productSlug: line.slug,
     productName: line.name,
+    brandName: line.brand,
     productDescription: "",
     productPrice: line.unitPrice,
-    productQuantity: line.quantity,
+    productStockQuantity: line.quantity,
   };
 }
 

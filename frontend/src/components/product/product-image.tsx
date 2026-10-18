@@ -9,7 +9,9 @@ import { cn } from "@/lib/cn";
  * these are our own static files, so this one component opts out of
  * optimisation instead of weakening the site-wide config.
  *
- * When real product photography replaces the placeholders, drop `unoptimized`.
+ * The API can return absolute image URLs too. They stay `unoptimized` so no
+ * `remotePatterns` allow-list is needed; add one and drop it if you want Next
+ * to optimise real photography later.
  */
 export function ProductImage({
   src,
