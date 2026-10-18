@@ -97,7 +97,7 @@ namespace electroapi.infrastructure.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("int");
 
-                    b.Property<Guid>("ProductId")
+                    b.Property<Guid?>("ProductId")
                         .HasColumnType("char(36)");
 
                     b.Property<string>("Url")
@@ -108,7 +108,31 @@ namespace electroapi.infrastructure.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("ProductImages");
+                    b.ToTable("ProductImage");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.ProductSpecification", b =>
+                {
+                    b.Property<Guid>("ProductSpecificationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ProductSpecificationKey")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ProductSpecificationValue")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("ProductSpecificationId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecification");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.User", b =>
@@ -146,48 +170,20 @@ namespace electroapi.infrastructure.Migrations
                     b.HasOne("electroapi.core.Entities.Order", null)
                         .WithMany("Products")
                         .HasForeignKey("OrderId");
-
-                    b.OwnsMany("electroapi.core.Entities.ProductSpec", "ProductSpecs", b1 =>
-                        {
-                            b1.Property<Guid>("Id")
-                                .ValueGeneratedOnAdd()
-                                .HasColumnType("char(36)");
-
-                            b1.Property<Guid>("ProductId")
-                                .HasColumnType("char(36)");
-
-                            b1.Property<string>("SpecName")
-                                .IsRequired()
-                                .HasColumnType("longtext")
-                                .HasColumnName("SpecName");
-
-                            b1.Property<string>("SpecValue")
-                                .IsRequired()
-                                .HasColumnType("longtext")
-                                .HasColumnName("SpecValue");
-
-                            b1.HasKey("Id");
-
-                            b1.HasIndex("ProductId");
-
-                            b1.ToTable("ProductSpecs", (string)null);
-
-                            b1.WithOwner()
-                                .HasForeignKey("ProductId");
-                        });
-
-                    b.Navigation("ProductSpecs");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.ProductImage", b =>
                 {
-                    b.HasOne("electroapi.core.Entities.Product", "Product")
+                    b.HasOne("electroapi.core.Entities.Product", null)
                         .WithMany("ProductImages")
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("ProductId");
+                });
 
-                    b.Navigation("Product");
+            modelBuilder.Entity("electroapi.core.Entities.ProductSpecification", b =>
+                {
+                    b.HasOne("electroapi.core.Entities.Product", null)
+                        .WithMany("ProductSpecifications")
+                        .HasForeignKey("ProductId");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.Order", b =>
@@ -198,6 +194,8 @@ namespace electroapi.infrastructure.Migrations
             modelBuilder.Entity("electroapi.core.Entities.Product", b =>
                 {
                     b.Navigation("ProductImages");
+
+                    b.Navigation("ProductSpecifications");
                 });
 #pragma warning restore 612, 618
         }

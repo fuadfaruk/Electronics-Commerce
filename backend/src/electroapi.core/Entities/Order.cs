@@ -4,7 +4,7 @@ namespace electroapi.core.Entities
 {
     public sealed class Order
     {
-        public Guid OrderId { get; set; }
+        public Guid OrderId { get; set; } = Guid.NewGuid();
         public Guid UserId { get; set; }
         public User User { get; set; } = new User();
         public List<Guid> ProductIds { get; set; } = new List<Guid>();

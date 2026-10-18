@@ -2,6 +2,7 @@ using electroapi.core.Interfaces.Repositories;
 using electroapi.infrastructure.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
 
 public partial class Program
 {
@@ -36,6 +37,7 @@ public partial class Program
         if (app.Environment.IsDevelopment())
         {
             app.MapOpenApi();
+            app.MapScalarApiReference();
         }
 
         //app.UseHttpsRedirection();

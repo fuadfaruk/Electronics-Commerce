@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace electroapi.infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261002163934_InitialMigration")]
+    [Migration("20261018094910_InitialMigration")]
     partial class InitialMigration
     {
         /// <inheritdoc />
@@ -64,18 +64,24 @@ namespace electroapi.infrastructure.Migrations
                     b.Property<Guid?>("OrderId")
                         .HasColumnType("char(36)");
 
+                    b.Property<string>("ProductCategorySlug")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("ProductDescription")
-                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("ProductName")
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<int>("ProductPrice")
+                    b.Property<int?>("ProductPrice")
                         .HasColumnType("int");
 
-                    b.Property<int>("ProductQuantity")
+                    b.Property<string>("ProductSlug")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("ProductStockQuantity")
                         .HasColumnType("int");
 
                     b.HasKey("ProductId");
@@ -83,6 +89,53 @@ namespace electroapi.infrastructure.Migrations
                     b.HasIndex("OrderId");
 
                     b.ToTable("Products");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImage");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.ProductSpecification", b =>
+                {
+                    b.Property<Guid>("ProductSpecificationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ProductSpecificationKey")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ProductSpecificationValue")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("ProductSpecificationId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecification");
                 });
 
             modelBuilder.Entity("electroapi.core.Entities.User", b =>
@@ -122,9 +175,30 @@ namespace electroapi.infrastructure.Migrations
                         .HasForeignKey("OrderId");
                 });
 
+            modelBuilder.Entity("electroapi.core.Entities.ProductImage", b =>
+                {
+                    b.HasOne("electroapi.core.Entities.Product", null)
+                        .WithMany("ProductImages")
+                        .HasForeignKey("ProductId");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.ProductSpecification", b =>
+                {
+                    b.HasOne("electroapi.core.Entities.Product", null)
+                        .WithMany("ProductSpecifications")
+                        .HasForeignKey("ProductId");
+                });
+
             modelBuilder.Entity("electroapi.core.Entities.Order", b =>
                 {
                     b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("electroapi.core.Entities.Product", b =>
+                {
+                    b.Navigation("ProductImages");
+
+                    b.Navigation("ProductSpecifications");
                 });
 #pragma warning restore 612, 618
         }

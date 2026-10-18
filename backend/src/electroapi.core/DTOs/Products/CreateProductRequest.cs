@@ -13,7 +13,9 @@ namespace electroapi.core.DTOs.Products
         public string? ProductDescription { get; set; }
         public int? ProductPrice { get; set; }
         public int? ProductStockQuantity { get; set; }
-        public List<string>? ProductImage { get; set; }
-        public List<ProductSpec>? ProductSpecs { get; set; }
+        public List<Guid> ProductImageIds { get; set; } = new List<Guid>();
+        public List<ProductImage> ProductImages { get; set; } = new List<ProductImage>();
+        public List<Guid> ProductSpecificationIds { get; set; } = new List<Guid>();
+        public List<ProductSpecification> ProductSpecifications { get; set; } = new List<ProductSpecification>();
     }
 }

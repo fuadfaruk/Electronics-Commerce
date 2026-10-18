@@ -25,26 +25,25 @@ namespace electroapi.api.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest newProduct)
+        public async Task<IActionResult> CreateProduct([FromBody] Product newProduct)
         {
-            Product product = new Product
-            {
-                ProductId = Guid.NewGuid(),
-                ProductSlug = newProduct.ProductSlug,
-                ProductName = newProduct.ProductName,
-                ProductCategorySlug = newProduct.ProductCategorySlug,
-                ProductDescription = newProduct.ProductDescription,
-                ProductPrice = newProduct.ProductPrice,
-                ProductStockQuantity = newProduct.ProductStockQuantity,
-                ProductImages = newProduct.ProductImage?.Select((url, idx) => new ProductImage { Id = Guid.NewGuid(), Url = url ?? string.Empty, Order = idx }).ToList() ?? new List<ProductImage>(),
-                ProductSpecs = newProduct.ProductSpecs
-            };
+            newProduct.ProductId = Guid.NewGuid(); // Assign a new GUID to the ProductId
+            //Product product = new Product
+            //{
+            //    ProductId = Guid.NewGuid(),
+            //    ProductSlug = newProduct.ProductSlug,
+            //    ProductName = newProduct.ProductName,
+            //    ProductCategorySlug = newProduct.ProductCategorySlug,
+            //    ProductDescription = newProduct.ProductDescription,
+            //    ProductPrice = newProduct.ProductPrice,
+            //    ProductStockQuantity = newProduct.ProductStockQuantity
+            //};
 
-            Console.WriteLine($"Creating product: {product.ProductName} with ID: {product.ProductId}");
+            Console.WriteLine($"Creating product: {newProduct.ProductName} with ID: {newProduct.ProductId}");
 
-            var createdProduct = await _productRepository.CreateProductAsync(product);
+            var createdProduct = await _productRepository.CreateProductAsync(newProduct);
 
-            return Ok(product);
+            return Ok(createdProduct);
         }
     }
 }
