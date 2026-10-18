@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.core.Entities
+namespace ElectroApi.Core.Entities
 {
     public sealed class User
     {

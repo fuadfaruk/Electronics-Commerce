@@ -1,10 +1,10 @@
-﻿using electroapi.core.Entities;
-using electroapi.core.Enums;
+﻿using ElectroApi.Core.Entities;
+using ElectroApi.Core.Enums;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.core.DTOs.Orders
+namespace ElectroApi.Core.DTOs.Orders
 {
     public class UpdateOrderStatus
     {

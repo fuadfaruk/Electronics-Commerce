@@ -1,4 +1,4 @@
-﻿using electroapi.core.Entities;
+﻿using ElectroApi.Core.Entities;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;

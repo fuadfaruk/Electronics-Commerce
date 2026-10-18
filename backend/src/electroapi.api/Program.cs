@@ -1,5 +1,5 @@
-using electroapi.core.Interfaces.Repositories;
-using electroapi.infrastructure.Repositories;
+using ElectroApi.Core.Interfaces.Repositories;
+using ElectroApi.Infrastructure.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -19,7 +19,7 @@ public partial class Program
                 options.UseMySql(
                     connectionString,
                     ServerVersion.AutoDetect(connectionString),
-                    b => b.MigrationsAssembly("electroapi.infrastructure")
+                    b => b.MigrationsAssembly("ElectroApi.Infrastructure")
                 )
                 //.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) // Optional: for read-heavy scenarios
             );

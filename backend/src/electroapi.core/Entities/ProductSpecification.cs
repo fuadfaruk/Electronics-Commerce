@@ -1,6 +1,6 @@
 using System;
 
-namespace electroapi.core.Entities;
+namespace ElectroApi.Core.Entities;
 
 public class ProductSpecification
 {

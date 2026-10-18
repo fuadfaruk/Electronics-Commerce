@@ -1,12 +1,12 @@
-﻿using electroapi.core.DTOs.Products;
-using electroapi.core.Entities;
-using electroapi.core.Interfaces.Repositories;
+﻿using ElectroApi.Core.DTOs.Products;
+using ElectroApi.Core.Entities;
+using ElectroApi.Core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Linq;
 
-namespace electroapi.api.Controllers
+namespace ElectroApi.api.Controllers
 {
     [Route("api/v1/[controller]")]
     [ApiController]

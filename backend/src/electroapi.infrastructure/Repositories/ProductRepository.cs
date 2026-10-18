@@ -1,12 +1,12 @@
-﻿using electroapi.core.Entities;
-using electroapi.core.Interfaces.Repositories;
+﻿using ElectroApi.Core.Entities;
+using ElectroApi.Core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.infrastructure.Repositories
+namespace ElectroApi.Infrastructure.Repositories
 {
     public class ProductRepository : IProductRepository
     {

@@ -1,9 +1,9 @@
-﻿using electroapi.core.Entities;
+﻿using ElectroApi.Core.Entities;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.core.DTOs.Products
+namespace ElectroApi.Core.DTOs.Products
 {
     public class CreateProductRequest
     {

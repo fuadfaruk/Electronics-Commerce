@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.core.Enums
+namespace ElectroApi.Core.Enums
 {
     public enum OrderStatus
     {

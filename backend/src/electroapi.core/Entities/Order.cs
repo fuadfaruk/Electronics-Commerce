@@ -1,6 +1,6 @@
-﻿using electroapi.core.Enums;
+﻿using ElectroApi.Core.Enums;
 
-namespace electroapi.core.Entities
+namespace ElectroApi.Core.Entities
 {
     public sealed class Order
     {

@@ -1,7 +1,7 @@
-﻿using electroapi.core.Entities;
-using electroapi.core.Enums;
+﻿using ElectroApi.Core.Entities;
+using ElectroApi.Core.Enums;
 
-namespace electroapi.core.DTOs.Orders
+namespace ElectroApi.Core.DTOs.Orders
 {
     public class OrderResponse
     {

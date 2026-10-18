@@ -1,9 +1,9 @@
-﻿using electroapi.core.Entities;
+﻿using ElectroApi.Core.Entities;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace electroapi.core.Interfaces.Repositories
+namespace ElectroApi.Core.Interfaces.Repositories
 {
     public interface IProductRepository
     {

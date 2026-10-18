@@ -1,4 +1,4 @@
-﻿namespace electroapi.integration.tests
+﻿namespace ElectroApi.integration.tests
 {
     public class UnitTest1
     {

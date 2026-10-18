@@ -1,11 +1,11 @@
-﻿using electroapi.core.DTOs.Orders;
-using electroapi.core.Entities;
-using electroapi.core.Enums;
-using electroapi.core.Interfaces.Repositories;
+﻿using ElectroApi.Core.DTOs.Orders;
+using ElectroApi.Core.Entities;
+using ElectroApi.Core.Enums;
+using ElectroApi.Core.Interfaces.Repositories;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 
-namespace electroapi.api.Controllers
+namespace ElectroApi.api.Controllers
 {
     [Route("api/v1/[controller]")] // Add proper versioning to the route with package Microsoft.AspNetCore.Mvc.Versioning
     [ApiController]
