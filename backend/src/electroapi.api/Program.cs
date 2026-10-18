@@ -40,6 +40,7 @@ public partial class Program
             app.MapScalarApiReference();
         }
 
+        app.MapGet("/", () => "Hello World!");
         //app.UseHttpsRedirection();
 
         app.UseAuthorization();

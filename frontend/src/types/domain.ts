@@ -37,7 +37,7 @@ export interface Product {
   categorySlug: string;
   description: string;
   /** Whole taka, VAT inclusive. */
-  price: number;
+  price?: number;
   /** Mock-only: original price when the item is discounted. */
   compareAtPrice?: number;
   /** Mirrors `Product.ProductQuantity`. */
