@@ -60,11 +60,26 @@ jobs:
 
           $publicDir = Join-Path $source "public"
           if (Test-Path -LiteralPath $publicDir) {
-            Copy-Item -Path (Join-Path $publicDir "*") -Destination (Join-Path $deploy "public") -Recurse -Force
+            # Copy the directory itself (not "$publicDir\*") so nested folders such as
+            # public/placeholders keep their structure. Copy-Item into a non-existent
+            # destination copies the source *as* that path, which flattens the tree.
+            Copy-Item -LiteralPath $publicDir -Destination $deploy -Recurse -Force
           }
 
           if (-not (Test-Path -LiteralPath (Join-Path $deploy "server.js"))) {
             throw "Assembled package is missing server.js at '$deploy'."
+          }
+
+          # Guard against a silently flattened public/ tree: verify every source
+          # asset is present under the same relative path in the package.
+          if (Test-Path -LiteralPath $publicDir) {
+            foreach ($asset in Get-ChildItem -LiteralPath $publicDir -Recurse -File) {
+              $relative = $asset.FullName.Substring($publicDir.Length).TrimStart('\', '/')
+              $expected = Join-Path (Join-Path $deploy "public") $relative
+              if (-not (Test-Path -LiteralPath $expected)) {
+                throw "Assembled package is missing public asset '$relative' (expected '$expected')."
+              }
+            }
           }
 
           # IIS launches the standalone Next.js server through the HttpPlatform handler.
