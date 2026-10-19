@@ -10,6 +10,7 @@ import {
 import { formatBDT } from "@/lib/money";
 
 export default async function HomePage() {
+  const mockDataSetting = process.env.NEXT_PUBLIC_USE_MOCK_DATA;
   const [featured, deals, counts] = await Promise.all([
     getFeaturedProducts(8),
     getDealProducts(8),
@@ -20,7 +21,12 @@ export default async function HomePage() {
     <div className="space-y-8">
       <section className="space-y-4">
         <div className="space-y-2">
-          <p className="bench-strip">Diffused light-bed catalog</p>
+          <p className="bench-strip">
+            NEXT_PUBLIC_USE_MOCK_DATA is{" "}
+            {mockDataSetting === undefined
+              ? "not set"
+              : `set to ${mockDataSetting}`}
+          </p>
           <h1 className="text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
             Gadgets and parts, delivered across Bangladesh
           </h1>
