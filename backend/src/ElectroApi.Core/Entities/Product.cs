@@ -10,8 +10,10 @@ namespace ElectroApi.Core.Entities
         public string? BrandName { get; set; }
         public string? ProductCategorySlug { get; set; }
         public string? ProductDescription { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
         public decimal? ProductPrice { get; set; }
-        public int? ProductComparePrice { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? ProductComparePrice { get; set; }
         public int? ProductStockQuantity { get; set; }
         public List<ProductImage> ProductImages { get; set; } = new List<ProductImage>();
         public List<ProductSpecification> ProductSpecifications { get; set; } = new List<ProductSpecification>();

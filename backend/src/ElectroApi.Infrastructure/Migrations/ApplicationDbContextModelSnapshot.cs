@@ -92,8 +92,8 @@ namespace ElectroApi.Infrastructure.Migrations
                     b.Property<string>("ProductCategorySlug")
                         .HasColumnType("longtext");
 
-                    b.Property<int?>("ProductComparePrice")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("ProductComparePrice")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("ProductDescription")
                         .HasColumnType("longtext");
@@ -103,7 +103,7 @@ namespace ElectroApi.Infrastructure.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<decimal?>("ProductPrice")
-                        .HasColumnType("decimal(65,30)");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("ProductSlug")
                         .IsRequired()
