@@ -4,9 +4,6 @@ A full-stack electronics and computer-parts storefront. The customer-facing app 
 phone-first [Next.js](https://nextjs.org/) storefront; the backend is an ASP.NET Core
 Web API backed by MySQL through Entity Framework Core.
 
-Prices are in Bangladeshi taka (BDT), VAT inclusive. Cash on delivery, bKash and Nagad
-are the intended payment methods.
-
 > **Status:** early development. The storefront reads from checked-in mock data by
 > default and can switch to the live catalog with `NEXT_PUBLIC_USE_MOCK_DATA=false`.
 > See [Project status](#project-status) for the remaining work.
