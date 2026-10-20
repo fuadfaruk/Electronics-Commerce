@@ -7,8 +7,10 @@ import { ProductRail } from "@/components/product/product-rail";
 import { PriceTag } from "@/components/product/price-tag";
 import { SpecTable } from "@/components/product/spec-table";
 import { StockBadge } from "@/components/product/stock-badge";
+import { ErrorNotice } from "@/components/ui/error-notice";
 import { CashIcon, TruckIcon } from "@/components/ui/icons";
 import { getCategory } from "@/data/categories.mock";
+import { getApiResult } from "@/lib/api/errors";
 import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/lib/cart/pricing";
 import { getProductBySlug, getRelatedProducts } from "@/lib/catalog/queries";
 import { formatBDT } from "@/lib/money";
@@ -17,7 +19,9 @@ export async function generateMetadata({
   params,
 }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const result = await getApiResult(() => getProductBySlug(slug));
+  if (!result.ok) return { title: "Product unavailable" };
+  const product = result.data;
 
   if (!product) return { title: "Product not found" };
 
@@ -28,12 +32,26 @@ export default async function ProductPage({
   params,
 }: PageProps<"/products/[slug]">) {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const result = await getApiResult(() => getProductBySlug(slug));
+  if (!result.ok) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          Product details unavailable
+        </h1>
+        <ErrorNotice
+          heading="Product could not be loaded"
+          problem={result.problem}
+        />
+      </div>
+    );
+  }
+  const product = result.data;
 
   if (!product) notFound();
 
   const category = getCategory(product.categorySlug);
-  const related = await getRelatedProducts(product);
+  const related = await getApiResult(() => getRelatedProducts(product));
 
   return (
     <div className="space-y-8 pb-16 md:pb-0">
@@ -129,11 +147,18 @@ export default async function ProductPage({
         </div>
       </div>
 
-      <ProductRail
-        title={`More in ${category.name}`}
-        products={related}
-        href={`/products?category=${category.slug}`}
-      />
+      {related.ok ? (
+        <ProductRail
+          title={`More in ${category.name}`}
+          products={related.data}
+          href={`/products?category=${category.slug}`}
+        />
+      ) : (
+        <ErrorNotice
+          heading="Related products could not be loaded"
+          problem={related.problem}
+        />
+      )}
     </div>
   );
 }

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { EmptyState } from "@/components/catalog/empty-state";
 import { ListingControls } from "@/components/catalog/listing-controls";
 import { ListingResults } from "@/components/catalog/listing-results";
+import { ErrorNotice } from "@/components/ui/error-notice";
 import { getCategoryName } from "@/data/categories.mock";
+import { getApiResult } from "@/lib/api/errors";
 import {
   applyFilters,
   buildFacets,
@@ -27,16 +29,30 @@ export default async function ProductsPage({
 }: PageProps<"/products">) {
   const filters = parseCatalogFilters(await searchParams);
 
-  const products = await getProducts();
-  const results = applyFilters(products, filters);
-  const facets = buildFacets(products, filters.q);
-
   const heading =
     filters.categories.length === 1
       ? getCategoryName(filters.categories[0])
       : filters.q
         ? `Results for “${filters.q}”`
         : "All products";
+
+  const catalog = await getApiResult(getProducts);
+  if (!catalog.ok) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          {heading}
+        </h1>
+        <ErrorNotice
+          heading="Products could not be loaded"
+          problem={catalog.problem}
+        />
+      </div>
+    );
+  }
+
+  const results = applyFilters(catalog.data, filters);
+  const facets = buildFacets(catalog.data, filters.q);
 
   return (
     <div className="space-y-4">

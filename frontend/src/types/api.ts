@@ -44,6 +44,23 @@ export interface ApiProduct {
   featured?: boolean;
 }
 
+/** Public error details that can be rendered in development and production. */
+export interface ApiProblem {
+  title: string;
+  detail: string;
+  status?: number;
+  method?: string;
+  url?: string;
+  type?: string;
+  traceId?: string;
+  cause?: string;
+  errors?: Record<string, string[]>;
+}
+
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; problem: ApiProblem };
+
 /** `electroapi.core.Entities.User` — note: no password, no roles. */
 export interface ApiUser {
   id: string;

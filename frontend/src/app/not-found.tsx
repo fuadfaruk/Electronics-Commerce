@@ -10,9 +10,9 @@ export default function NotFound() {
         catalog.
       </p>
       <div className="flex gap-2">
-        <Link href="/" className={buttonStyles({ variant: "secondary" })}>
+        {/* <Link href="/" className={buttonStyles({ variant: "secondary" })}>
           Go home
-        </Link>
+        </Link> */}
         <Link href="/products" className={buttonStyles()}>
           Browse products
         </Link>

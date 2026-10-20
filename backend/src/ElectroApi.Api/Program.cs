@@ -40,6 +40,7 @@ public partial class Program
 
         // Configure the HTTP request pipeline.
         app.UseExceptionHandler();
+        app.UseStatusCodePages();
 
         if (app.Environment.IsDevelopment())
         {

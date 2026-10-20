@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { MOCK_PRODUCTS } from "@/data/products.mock";
 import { fetchProductsFromApi } from "@/lib/api/products";
 import { isInStock } from "@/lib/catalog/stock";
@@ -15,10 +16,11 @@ import type { Product } from "@/types/domain";
  * network, and filters still run over the full catalog on the server.
  */
 
-export async function getProducts(): Promise<Product[]> {
+// Share the timed API request across the page and its metadata, not across visitors.
+export const getProducts = cache(async (): Promise<Product[]> => {
   if (USE_MOCK_DATA) return MOCK_PRODUCTS;
   return fetchProductsFromApi();
-}
+});
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
   const products = await getProducts();

@@ -1,6 +1,8 @@
 import { CategoryTiles } from "@/components/catalog/category-tiles";
 import { ProductRail } from "@/components/product/product-rail";
+import { ErrorNotice } from "@/components/ui/error-notice";
 import { CashIcon, ShieldIcon, TruckIcon } from "@/components/ui/icons";
+import { getApiResult } from "@/lib/api/errors";
 import { FREE_DELIVERY_THRESHOLD } from "@/lib/cart/pricing";
 import {
   getCategoryCounts,
@@ -11,11 +13,13 @@ import { formatBDT } from "@/lib/money";
 
 export default async function HomePage() {
   const mockDataSetting = process.env.NEXT_PUBLIC_USE_MOCK_DATA;
-  const [featured, deals, counts] = await Promise.all([
-    getFeaturedProducts(8),
-    getDealProducts(8),
-    getCategoryCounts(),
-  ]);
+  const catalog = await getApiResult(() =>
+    Promise.all([
+      getFeaturedProducts(8),
+      getDealProducts(8),
+      getCategoryCounts(),
+    ]),
+  );
 
   return (
     <div className="space-y-8">
@@ -52,21 +56,31 @@ export default async function HomePage() {
         </ul>
       </section>
 
+      {!catalog.ok ? (
+        <ErrorNotice
+          heading="Catalog could not be loaded"
+          problem={catalog.problem}
+        />
+      ) : null}
+
       <section className="space-y-3">
         <h2 className="text-base font-semibold sm:text-lg">
           Shop by category
         </h2>
-        <CategoryTiles counts={counts} />
+        <CategoryTiles counts={catalog.ok ? catalog.data[2] : undefined} />
       </section>
 
-      <ProductRail
-        title="Featured"
-        products={featured}
-        href="/products"
-        hrefLabel="See all"
-      />
-
-      <ProductRail title="Deals" products={deals} />
+      {catalog.ok ? (
+        <>
+          <ProductRail
+            title="Featured"
+            products={catalog.data[0]}
+            href="/products"
+            hrefLabel="See all"
+          />
+          <ProductRail title="Deals" products={catalog.data[1]} />
+        </>
+      ) : null}
     </div>
   );
 }
