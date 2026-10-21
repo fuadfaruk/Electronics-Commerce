@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError, getApiResult } from "@/lib/api/errors";
-import { PRODUCTS_URL, fetchProductsFromApi } from "@/lib/api/products";
+import {
+  PRODUCTS_URL,
+  fetchProductByIdFromApi,
+  fetchProductsFromApi,
+} from "@/lib/api/products";
 import type { ApiProduct } from "@/types/api";
 
 const apiProduct: ApiProduct = {
@@ -297,5 +301,171 @@ describe("fetchProductsFromApi", () => {
   it("uses the expected error class for malformed JSON", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json")));
     await expect(fetchProductsFromApi()).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});
+
+describe("fetchProductByIdFromApi", () => {
+  const productUrl = `${PRODUCTS_URL}/${apiProduct.productId}`;
+
+  it("requests the GUID endpoint and maps the full gallery and specifications", async () => {
+    const fetchMock = stubFetch({
+      ...apiProduct,
+      productImages: [
+        { id: "second-image", url: "/products/detail.jpg", order: 2 },
+        ...apiProduct.productImages!,
+      ],
+    });
+
+    const product = await fetchProductByIdFromApi(apiProduct.productId);
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      productUrl,
+      expect.objectContaining({
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(product).toMatchObject({
+      id: apiProduct.productId,
+      slug: apiProduct.productSlug,
+      images: [
+        "https://cdn.example.com/products/api-product.jpg",
+        "/products/detail.jpg",
+      ],
+      specs: [{ label: "CPU", value: "Ryzen 7" }],
+    });
+  });
+
+  it("returns null when the selected product no longer exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
+    );
+
+    await expect(
+      fetchProductByIdFromApi(apiProduct.productId),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves API problems with the single-product URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            title: "Service temporarily unavailable",
+            detail: "The database is currently unavailable.",
+            traceId: "product-detail-request",
+          },
+          { status: 503 },
+        ),
+      ),
+    );
+
+    await expect(
+      getApiResult(() => fetchProductByIdFromApi(apiProduct.productId)),
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        title: "Service temporarily unavailable",
+        status: 503,
+        traceId: "product-detail-request",
+        method: "GET",
+        url: productUrl,
+      },
+    });
+  });
+
+  it.each([
+    [null, "must be a JSON object"],
+    [[apiProduct], "must be a JSON object"],
+    [{ ...apiProduct, productName: "" }, "productName must be a non-empty string"],
+    [
+      { ...apiProduct, productImages: [null] },
+      "productImages[0] must be a JSON object",
+    ],
+    [
+      { ...apiProduct, productSpecifications: [null] },
+      "productSpecifications[0] must be a JSON object",
+    ],
+  ])("validates the detail response: %j", async (payload, detail) => {
+    stubFetch(payload);
+
+    await expect(
+      getApiResult(() => fetchProductByIdFromApi(apiProduct.productId)),
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        title: "Invalid product data",
+        detail: `Product ${apiProduct.productId}: ${detail}.`,
+        status: 200,
+        url: productUrl,
+      },
+    });
+  });
+
+  it("reports invalid JSON with the single-product URL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json")));
+
+    await expect(
+      getApiResult(() => fetchProductByIdFromApi(apiProduct.productId)),
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        title: "Invalid API response",
+        detail: `GET ${productUrl} returned a body that is not valid JSON.`,
+        url: productUrl,
+      },
+    });
+  });
+
+  it("reports connection failures against the single-product URL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+
+    await expect(
+      getApiResult(() => fetchProductByIdFromApi(apiProduct.productId)),
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        title: "Product API is unreachable",
+        detail: expect.stringContaining(productUrl),
+        url: productUrl,
+      },
+    });
+  });
+
+  it("reports a timeout while reading the detail body", async () => {
+    const controller = new AbortController();
+    const timeout = new DOMException("Request timed out", "TimeoutError");
+    const timeoutMock = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(controller.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => {
+          controller.abort(timeout);
+          throw timeout;
+        },
+      }),
+    );
+
+    try {
+      await expect(
+        getApiResult(() => fetchProductByIdFromApi(apiProduct.productId)),
+      ).resolves.toMatchObject({
+        ok: false,
+        problem: {
+          title: "Product API request timed out",
+          url: productUrl,
+        },
+      });
+      expect(timeoutMock).toHaveBeenCalledWith(10_000);
+    } finally {
+      timeoutMock.mockRestore();
+    }
   });
 });

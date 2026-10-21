@@ -39,6 +39,7 @@ namespace ElectroApi.Infrastructure.Repositories
             return await _context.Products
                 .AsNoTracking()
                 .Include(p => p.ProductImages)
+                .Include(p => p.ProductSpecifications)
                 .FirstOrDefaultAsync(p => p.ProductId == productId);
         }
 

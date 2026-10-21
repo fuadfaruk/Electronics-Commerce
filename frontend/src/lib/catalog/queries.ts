@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { MOCK_PRODUCTS } from "@/data/products.mock";
-import { fetchProductsFromApi } from "@/lib/api/products";
+import { fetchProductByIdFromApi, fetchProductsFromApi } from "@/lib/api/products";
 import { isInStock } from "@/lib/catalog/stock";
 import { USE_MOCK_DATA } from "@/types/api";
 import type { Product } from "@/types/domain";
@@ -11,6 +11,7 @@ import type { Product } from "@/types/domain";
  * Every screen reads the catalog through these functions and nothing else.
  * `NEXT_PUBLIC_USE_MOCK_DATA` picks the source: the local mock by default, or
  * `GET /api/v1/Product` through `fetchProductsFromApi` when set to `false`.
+ * Product pages then fetch `GET /api/v1/Product/{productId}` for full details.
  *
  * The functions are async in both modes so callers are already written for the
  * network, and filters still run over the full catalog on the server.
@@ -22,10 +23,14 @@ export const getProducts = cache(async (): Promise<Product[]> => {
   return fetchProductsFromApi();
 });
 
-export async function getProductBySlug(slug: string): Promise<Product | null> {
-  const products = await getProducts();
-  return products.find((product) => product.slug === slug) ?? null;
-}
+export const getProductBySlug = cache(
+  async (slug: string): Promise<Product | null> => {
+    const products = await getProducts();
+    const product = products.find((product) => product.slug === slug);
+    if (!product || USE_MOCK_DATA) return product ?? null;
+    return fetchProductByIdFromApi(product.id);
+  },
+);
 
 export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
   const products = await getProducts();

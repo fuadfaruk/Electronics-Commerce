@@ -8,7 +8,7 @@
  * Remaining gaps in the current API (documented in detail in the README):
  *   - Product prices are `decimal?`, so a product can have no price.
  *   - There is no product-by-slug endpoint, so the catalog fetches the list
- *     once per request and resolves slugs from it.
+ *     once per request, resolves slugs from it, and fetches details by GUID.
  *   - `Order.ProductIds` is a list while the order entity has `Products` too.
  *   - `Order.Address` is a `List<string>`, not a structured address.
  */
