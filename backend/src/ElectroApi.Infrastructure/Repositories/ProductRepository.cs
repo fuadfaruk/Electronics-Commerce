@@ -24,11 +24,47 @@ namespace ElectroApi.Infrastructure.Repositories
             return product;
         }
 
-        public async Task<IEnumerable<Product>> GetAllProductsAsync()
+        public async Task<List<Product>> GetAllProductsAsync()
         {
-            var products = await _context.Products.ToListAsync();
+            return await _context.Products.ToListAsync();
+        }
 
-            return products;
+        public async Task<Product?> GetProductByIdAsync(Guid productId)
+        {
+            return await _context.Products.FirstOrDefaultAsync(p => p.ProductId == productId);
+        }
+
+        public async Task<bool> DeleteProductAsync(Guid productId)
+        {
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == productId);
+            if (product == null)
+            {
+                return false;
+            }
+            _context.Products.Remove(product);
+            await _context.SaveChangesAsync();
+
+            return true;
+        }
+
+        public async Task<Product?> UpdateProductAsync(Product product)
+        {
+            var existingProduct = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == product.ProductId);
+            if (existingProduct == null)
+            {
+                return null;
+            }
+
+            existingProduct.ProductSlug = product.ProductSlug;
+            existingProduct.ProductName = product.ProductName;
+            existingProduct.ProductCategorySlug = product.ProductCategorySlug;
+            existingProduct.ProductDescription = product.ProductDescription;
+            existingProduct.ProductPrice = product.ProductPrice;
+            existingProduct.ProductStockQuantity = product.ProductStockQuantity;
+
+            await _context.SaveChangesAsync();
+
+            return existingProduct;
         }
     }
 }

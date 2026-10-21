@@ -27,6 +27,17 @@ namespace ElectroApi.api.Controllers
             return Ok(products);
         }
 
+        [HttpGet("{productId}")]
+        public async Task<IActionResult> GetProductById(Guid productId)
+        {
+            var product = await _productRepository.GetProductByIdAsync(productId);
+            if (product == null)
+            {
+                return NotFound();
+            }
+            return Ok(product);    
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreateProduct([FromBody] Product newProduct)
         {

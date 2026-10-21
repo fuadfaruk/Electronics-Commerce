@@ -25,7 +25,7 @@ namespace ElectroApi.Infrastructure.Repositories
 
         public async Task<bool> DeleteOrderAsync(Guid id)
         {
-            var order = await _context.Orders.FindAsync(id);
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.OrderId == id);
             if(order == null)
             {
                 return false;
@@ -38,7 +38,7 @@ namespace ElectroApi.Infrastructure.Repositories
 
         public async Task<Order?> GetOrderByIdAsync(Guid id)
         {
-            return await _context.Orders.FindAsync(id);
+            return await _context.Orders.FirstOrDefaultAsync(o => o.OrderId == id);
         }
 
         public async Task<List<Order>> GetOrdersAsync()
