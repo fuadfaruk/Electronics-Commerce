@@ -18,8 +18,8 @@ namespace ElectroApi.Core.DTOs.Products
         [Column(TypeName = "decimal(18,2)")]
         public decimal? ProductComparePrice { get; set; }
         public int? ProductStockQuantity { get; set; }
-        public List<CreateProductImage> ProductImages { get; set; } = new List<CreateProductImage>();
-        public List<CreateProductSpecification> ProductSpecifications { get; set; } = new List<CreateProductSpecification>();
+        public List<CreateProductImage> CreateProductImages { get; set; } = new List<CreateProductImage>();
+        public List<CreateProductSpecification> CreateProductSpecifications { get; set; } = new List<CreateProductSpecification>();
         public bool Featured { get; set; } = false;
     }
 }

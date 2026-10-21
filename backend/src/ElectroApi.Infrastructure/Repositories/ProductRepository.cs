@@ -26,12 +26,20 @@ namespace ElectroApi.Infrastructure.Repositories
 
         public async Task<List<Product>> GetAllProductsAsync()
         {
-            return await _context.Products.ToListAsync();
+            return await _context.Products
+                .AsNoTracking()
+                .Include(p => p.ProductImages
+                    .Where(image => image.Order == 1)
+                    .Take(1))
+                .ToListAsync();
         }
 
         public async Task<Product?> GetProductByIdAsync(Guid productId)
         {
-            return await _context.Products.FirstOrDefaultAsync(p => p.ProductId == productId);
+            return await _context.Products
+                .AsNoTracking()
+                .Include(p => p.ProductImages)
+                .FirstOrDefaultAsync(p => p.ProductId == productId);
         }
 
         public async Task<bool> DeleteProductAsync(Guid productId)

@@ -39,24 +39,48 @@ namespace ElectroApi.api.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> CreateProduct([FromBody] Product newProduct)
+        public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest newProduct)
         {
-            newProduct.ProductId = Guid.NewGuid(); // Assign a new GUID to the ProductId
-            //Product product = new Product
-            //{
-            //    ProductId = Guid.NewGuid(),
-            //    ProductSlug = newProduct.ProductSlug,
-            //    ProductName = newProduct.ProductName,
-            //    ProductCategorySlug = newProduct.ProductCategorySlug,
-            //    ProductDescription = newProduct.ProductDescription,
-            //    ProductPrice = newProduct.ProductPrice,
-            //    ProductStockQuantity = newProduct.ProductStockQuantity
-            //};
+            Product product = new Product
+            {
+                ProductId = Guid.NewGuid(),
+                ProductSlug = newProduct.ProductSlug,
+                ProductName = newProduct.ProductName,
+                BrandName = newProduct.BrandName,
+                ProductCategorySlug = newProduct.ProductCategorySlug,
+                ProductDescription = newProduct.ProductDescription,
+                ProductPrice = newProduct.ProductPrice,
+                ProductComparePrice = newProduct.ProductComparePrice,
+                ProductStockQuantity = newProduct.ProductStockQuantity,
+                ProductImages = newProduct.CreateProductImages.Select(image => new ProductImage
+                {
+                    Url = image.ImageUrl,
+                    Order = image.Order
+                }).ToList(),
+                ProductSpecifications = newProduct.CreateProductSpecifications.Select(spec => new ProductSpecification
+                {
+                    ProductSpecificationKey = spec.ProductSpecificationKey,
+                    ProductSpecificationValue = spec.ProductSpecificationValue
+                }).ToList(),
+                Featured = newProduct.Featured
+            };
 
-            var createdProduct = await _productRepository.CreateProductAsync(newProduct);
+            var createdProduct = await _productRepository.CreateProductAsync(product);
             _logger.LogInformation("Created product {ProductId}.", createdProduct.ProductId);
 
             return Ok(createdProduct);
+        }
+
+        [HttpDelete("{productId}")]
+        public async Task<IActionResult> DeleteProduct(Guid productId)
+        {
+            var deleted = await _productRepository.DeleteProductAsync(productId);
+            if (!deleted)
+            {
+                return NotFound();
+            }
+            _logger.LogInformation("Deleted product {ProductId}.", productId);
+            return NoContent();
         }
     }
 }

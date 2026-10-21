@@ -19,6 +19,18 @@ namespace ElectroApi.Infrastructure.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<Product>()
+                .HasMany(product => product.ProductImages)
+                .WithOne()
+                .HasForeignKey("ProductId")
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Product>()
+                .HasMany(product => product.ProductSpecifications)
+                .WithOne()
+                .HasForeignKey("ProductId")
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

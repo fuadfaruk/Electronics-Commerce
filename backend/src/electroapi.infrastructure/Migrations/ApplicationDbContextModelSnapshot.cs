@@ -207,14 +207,16 @@ namespace ElectroApi.Infrastructure.Migrations
                 {
                     b.HasOne("ElectroApi.Core.Entities.Product", null)
                         .WithMany("ProductImages")
-                        .HasForeignKey("ProductId");
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("ElectroApi.Core.Entities.ProductSpecification", b =>
                 {
                     b.HasOne("ElectroApi.Core.Entities.Product", null)
                         .WithMany("ProductSpecifications")
-                        .HasForeignKey("ProductId");
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("ElectroApi.Core.Entities.Order", b =>
