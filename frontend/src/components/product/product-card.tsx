@@ -22,8 +22,6 @@ export function ProductCard({
   priority?: boolean;
   className?: string;
 }) {
-  const tags = product.specs.slice(0, 3).map((spec) => spec.value);
-
   return (
     <article
       className={cn(
@@ -55,16 +53,6 @@ export function ProductCard({
       </h3>
 
       <p className="mod-desc mt-1.5 line-clamp-2">{product.description}</p>
-
-      {tags.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {tags.map((tag) => (
-            <span key={tag} className="acrylic-tag">
-              {tag}
-            </span>
-          ))}
-        </div>
-      ) : null}
 
       <div className="tray-bottom mt-auto flex items-end justify-between gap-2 pt-3.5">
         <div className="min-w-0 space-y-1.5">

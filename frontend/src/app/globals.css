@@ -156,6 +156,17 @@ body {
   pointer-events: none;
 }
 
+/* Keep the acrylic tint on phones without a page-sized filtered layer. */
+@media (width < 48rem) {
+  .deck {
+    background: var(--surface);
+  }
+
+  .deck::before {
+    display: none;
+  }
+}
+
 /* A lighter frosted bar for the sticky header and tab bar. */
 .glass-bar {
   background: rgba(255, 255, 255, 0.82);
