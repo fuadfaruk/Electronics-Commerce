@@ -20,7 +20,7 @@ public sealed class CatalogRepository(ApplicationDbContext db) : ICatalogReposit
         var search = db.Products.AsNoTracking().Where(p => includeArchived || !p.IsArchived);
         foreach (var token in tokens)
             search = search.Where(p => (p.Name + " " + p.Brand + " " + p.Category.Slug + " " + p.Category.Name + " " + p.Description).ToLower().Contains(token));
-        var brandCounts = await search.GroupBy(p => p.Brand).Select(g => new { Value = g.Key, Count = g.Count() }).OrderBy(g => g.Value).Take(1000).ToArrayAsync(ct);
+        var brandCounts = await search.Where(p => p.Brand != "").GroupBy(p => p.Brand).Select(g => new { Value = g.Key, Count = g.Count() }).OrderBy(g => g.Value).Take(1000).ToArrayAsync(ct);
         var categories = await search.GroupBy(p => new { p.Category.Slug, p.Category.Name, p.Category.SortOrder }).Select(g => new { g.Key.Slug, g.Key.Name, g.Key.SortOrder, Count = g.Count() }).OrderBy(g => g.SortOrder).ThenBy(g => g.Slug).Take(1000).ToArrayAsync(ct);
         var min = await search.Select(p => (decimal?)p.Price).MinAsync(ct) ?? 0m;
         var max = await search.Select(p => (decimal?)p.Price).MaxAsync(ct) ?? 0m;

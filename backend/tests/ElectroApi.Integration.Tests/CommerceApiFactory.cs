@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ElectroApi.Integration.Tests;
 
-internal sealed class CommerceApiFactory(string connectionString, string keyPath) : WebApplicationFactory<Program>
+internal sealed class CommerceApiFactory(string connectionString, string keyPath, bool mailEnabled = false) : WebApplicationFactory<Program>
 {
     public const string Origin = "https://localhost:3000";
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -22,7 +22,10 @@ internal sealed class CommerceApiFactory(string connectionString, string keyPath
             ["Storefront:Origin"] = Origin,
             ["Security:KeyPath"] = keyPath,
             ["Security:DevelopmentHttps"] = "true",
-            ["Mail:Host"] = "",
+            ["Mail:Host"] = mailEnabled ? "127.0.0.1" : "",
+            ["Mail:Port"] = "1025",
+            ["Mail:EnableSsl"] = "false",
+            ["Logging:LogLevel:Default"] = "Warning",
             ["Mail:Sender"] = "development@example.com"
         }));
     }

@@ -41,6 +41,8 @@ public partial class Program
         });
         builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseMySQL(configuration.GetConnectionString("DefaultConnection")!));
         builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
+        builder.Services.AddScoped<ICommerceRepository, CommerceRepository>();
+        builder.Services.AddScoped<OrderAccess>();
         builder.Services.AddScoped<CommerceMail>();
         builder.Services.AddScoped<ICommerceMail>(services => services.GetRequiredService<CommerceMail>());
         builder.Services.AddHostedService<MailOutboxWorker>();
