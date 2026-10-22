@@ -1,11 +1,10 @@
-import type { PaymentMethod, Product } from "@/types/domain";
+import { MOCK_CATEGORIES } from "@/data/categories.mock";
+import type { Product } from "@/types/domain";
 
 /**
  * Mock catalog.
  *
- * Used while `NEXT_PUBLIC_USE_MOCK_DATA` is true. The live catalog comes from
- * `GET /api/v1/Product` and is mapped into this same shape by
- * `src/lib/api/adapters.ts`.
+ * Explicit read-only sample data for STOREFRONT_MODE=mock.
  *
  * Prices are whole BDT taka and VAT-inclusive. Stock, brand, category, images,
  * specs, compare price and featured map to the corresponding `Product` fields
@@ -26,7 +25,7 @@ const placeholderImages = (categorySlug: string): string[] => [
   `/placeholders/${categorySlug}-detail.svg`,
 ];
 
-type ProductSeed = Omit<Product, "id" | "images">;
+type ProductSeed = Omit<Product, "id" | "images" | "categoryId" | "categoryName" | "version" | "isArchived" | "saleEligible" | "featured"> & { featured?: boolean };
 
 const seeds: ProductSeed[] = [
   {
@@ -645,29 +644,10 @@ export const MOCK_PRODUCTS: Product[] = seeds.map((seed) => ({
   ...seed,
   id: nextId(),
   images: placeholderImages(seed.categorySlug),
+  categoryId: MOCK_CATEGORIES.find((c) => c.slug === seed.categorySlug)!.id,
+  categoryName: MOCK_CATEGORIES.find((c) => c.slug === seed.categorySlug)!.name,
+  version: 1,
+  featured: seed.featured === true,
+  isArchived: false,
+  saleEligible: true,
 }));
-
-/**
- * Payment options the checkout will present. Mock data only for now — the cart
- * drawer does not create orders yet, and there is no payment endpoint.
- *
- * These map onto your `OrderStatus` enum: cash on delivery stays `Pending`,
- * while bKash and Nagad would be `Paid` once confirmed.
- */
-export const PAYMENT_METHODS: PaymentMethod[] = [
-  {
-    id: "cod",
-    name: "Cash on delivery",
-    description: "Pay the courier in cash when your order arrives.",
-  },
-  {
-    id: "bkash",
-    name: "bKash",
-    description: "Send payment to our bKash merchant number.",
-  },
-  {
-    id: "nagad",
-    name: "Nagad",
-    description: "Send payment to our Nagad merchant number.",
-  },
-];

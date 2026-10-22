@@ -1,6 +1,7 @@
 "use client";
 
 import { ErrorNotice } from "@/components/ui/error-notice";
+import { safeProblem } from "@/lib/api/errors";
 import "./globals.css";
 
 export default function GlobalError({
@@ -14,7 +15,6 @@ export default function GlobalError({
     error && typeof error === "object"
       ? (error as { message?: unknown; digest?: unknown })
       : {};
-  const message = typeof error === "string" ? error : details.message;
 
   return (
     <html lang="en">
@@ -25,14 +25,7 @@ export default function GlobalError({
         <main className="mx-auto min-h-dvh max-w-3xl px-4 py-12 sm:py-20">
           <ErrorNotice
             heading="The storefront could not be displayed"
-            problem={{
-              title: "Unexpected application error",
-              detail:
-                typeof message === "string" && message.trim()
-                  ? message
-                  : "An unexpected error occurred while starting the storefront.",
-              traceId: typeof details.digest === "string" ? details.digest : undefined,
-            }}
+            problem={safeProblem(503, undefined, details.digest)}
             onRetry={retry}
           />
         </main>

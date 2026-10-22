@@ -28,7 +28,7 @@ export function AddToCartButton({
   className?: string;
 }) {
   const { addProduct } = useCart();
-  const soldOut = product.stock <= 0;
+  const soldOut = product.stock <= 0 || !product.saleEligible;
 
   return (
     <Button
@@ -40,7 +40,7 @@ export function AddToCartButton({
       onClick={() => addProduct(product, quantity)}
     >
       <CartIcon className="size-5" />
-      {soldOut ? "Out of stock" : "Add to cart"}
+      {soldOut ? "Unavailable" : "Add to cart"}
     </Button>
   );
 }
@@ -53,7 +53,7 @@ export function AddToCartButton({
 export function QuickAddButton({ product }: { product: Product }) {
   const { addProduct } = useCart();
   const [justAdded, setJustAdded] = useState(false);
-  const soldOut = product.stock <= 0;
+  const soldOut = product.stock <= 0 || !product.saleEligible;
 
   useEffect(() => {
     if (!justAdded) return;
@@ -71,7 +71,7 @@ export function QuickAddButton({ product }: { product: Product }) {
       }}
       aria-label={
         soldOut
-          ? `${product.name} is out of stock`
+          ? `${product.name} is unavailable`
           : `Add ${product.name} to cart`
       }
       className={cn(
@@ -85,7 +85,7 @@ export function QuickAddButton({ product }: { product: Product }) {
       )}
     >
       {soldOut ? (
-        "Out of stock"
+        "Unavailable"
       ) : justAdded ? (
         <>
           <CheckIcon className="size-4" />

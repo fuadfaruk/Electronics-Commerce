@@ -1,139 +1,38 @@
 import { notFound } from "next/navigation";
 import { describe, expect, it } from "vitest";
-import { ApiRequestError, getApiResult, readApiProblem } from "@/lib/api/errors";
+import { ApiRequestError, getApiResult, readApiProblem, readBoundedText, safeProblem } from "@/lib/api/errors";
 
-const url = "http://localhost:5249/api/v1/Product";
-
-describe("readApiProblem", () => {
-  it("keeps ProblemDetails and validation messages with the real HTTP status", async () => {
-    const response = Response.json(
-      {
-        title: "Invalid request",
-        detail: "The product name is required.",
-        status: 500,
-        type: "https://example.com/problems/validation",
-        traceId: "request-123",
-        errors: { productName: ["Name is required."], ignored: [null, 42] },
-        stack: "private stack trace",
-      },
-      { status: 400 },
-    );
-
-    expect(await readApiProblem(response, url)).toEqual({
-      title: "Invalid request",
-      detail: "The product name is required.",
-      status: 400,
-      method: "GET",
-      url,
-      type: "https://example.com/problems/validation",
-      traceId: "request-123",
-      errors: { productName: ["Name is required."] },
-    });
+describe("safe customer problems", () => {
+  it("maps recognized codes but never forwards upstream text, URLs, validation values or PII", async () => {
+    const problem = await readApiProblem(Response.json({ code: "quote_expired", title: "private customer@example.test", detail: "https://internal/db password", errors: { email: ["PII"] }, url: "https://private", stack: "secret", status: 500, traceId: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01" }, { status: 409 }));
+    expect(problem).toEqual(safeProblem(409, "QUOTE_EXPIRED", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"));
+    expect(JSON.stringify(problem)).not.toMatch(/private|password|PII|secret|https:/);
+    expect(Object.keys(problem).sort()).toEqual(["code", "detail", "status", "title", "traceId"]);
   });
-
-  it.each([404, 405, 429, 500, 503])(
-    "handles HTTP %i with an empty body and status text",
-    async (status) => {
-      const problem = await readApiProblem(new Response(null, { status }), url);
-      expect(problem.status).toBe(status);
-      expect(problem.title).toBe("API request failed");
-      expect(problem.detail).toBe(`GET ${url} failed with ${status}.`);
-    },
-  );
-
-  it.each([
-    [
-      { message: "The backend rejected this request." },
-      "The backend rejected this request.",
-    ],
-    [{ error: "Database is offline." }, "Database is offline."],
-    ["No such route.", "No such route."],
-  ])(
-    "accepts JSON message, error, and string responses: %j",
-    async (body, detail) => {
-      expect(await readApiProblem(Response.json(body, { status: 404 }), url))
-        .toMatchObject({ status: 404, detail });
-    },
-  );
-
-  it("uses the first plain-text line without including a stack trace", async () => {
-    const response = new Response(
-      "Database unavailable\n    at Controller.GetProducts()",
-      { status: 503 },
-    );
-    expect(await readApiProblem(response, url)).toMatchObject({
-      detail: "Database unavailable",
-    });
+  it.each(["<html>secret</html>", "Database error at private/path", JSON.stringify({ code: "unsafe_database_failure", detail: "secret", traceId: "customer@example.test" })])("sanitizes an unknown body %s", async (body) => {
+    const p = await readApiProblem(new Response(body, { status: 503 }));
+    expect(p).toEqual(safeProblem(503));
+    expect(JSON.stringify(p)).not.toContain("secret");
   });
-
-  it("does not render an HTML error page or its scripts", async () => {
-    const response = new Response(
-      "<!doctype html><html><body>secret<script>alert(1)</script></body></html>",
-      { status: 502 },
-    );
-    const problem = await readApiProblem(response, url);
-    expect(problem.detail).toContain("HTML error page instead of JSON");
-    expect(JSON.stringify(problem)).not.toContain("secret");
-    expect(JSON.stringify(problem)).not.toContain("<script>");
+  it.each([400, 401, 403, 404, 405, 409, 413, 429, 500, 503])("retains actual HTTP status %i without trusting payload status", async (status) => {
+    expect((await readApiProblem(Response.json({ status: 200, detail: "secret" }, { status }))).status).toBe(status);
   });
-
-  it("keeps HTTP details when reading the body fails", async () => {
-    const response = new Response(null, { status: 503 });
-    response.text = async () => {
-      throw new Error("Body disconnected");
-    };
-    expect(await readApiProblem(response, url)).toMatchObject({
-      status: 503,
-      detail: `GET ${url} failed with 503.`,
-    });
-  });
-
-  it("bounds long messages and ignores other backend exception fields", async () => {
-    const problem = await readApiProblem(
-      Response.json({
-        detail: "a".repeat(5000),
-        exception: "secret exception",
-        stackTrace: "private trace",
-      }, { status: 500 }),
-      url,
-    );
-    expect(problem.detail).toHaveLength(2003);
-    expect(problem.detail.endsWith("...")).toBe(true);
-    expect(JSON.stringify(problem)).not.toContain("secret");
-    expect(JSON.stringify(problem)).not.toContain("private");
+  it("bounds streamed body reads and rejects excessive input", async () => {
+    await expect(readBoundedText(new Response("a".repeat(20)), 10)).rejects.toMatchObject({ problem: { status: 413 } });
   });
 });
 
-describe("getApiResult", () => {
-  it("returns successful values, including a genuine missing product", async () => {
-    await expect(getApiResult(async () => null)).resolves.toEqual({
-      ok: true,
-      data: null,
-    });
+describe("expected results and framework flow", () => {
+  it("returns expected sanitized API failures", async () => {
+    const result = await getApiResult(async () => { throw new ApiRequestError({ status: 404, detail: "secret" }); });
+    expect(result).toEqual({ ok: false, problem: safeProblem(404) });
   });
-
-  it("returns a serializable expected problem instead of an uncaught exception", async () => {
-    const problem = {
-      title: "Not Found",
-      detail: "The API route does not exist.",
-      status: 404,
-    };
-    const result = await getApiResult(async () => {
-      throw new ApiRequestError(problem);
-    });
-    expect(result).toEqual({ ok: false, problem });
-    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  it("returns genuine missing values but rethrows programming errors", async () => {
+    await expect(getApiResult(async () => null)).resolves.toEqual({ ok: true, data: null });
+    const error = new TypeError("application bug");
+    await expect(getApiResult(async () => { throw error; })).rejects.toBe(error);
   });
-
-  it("does not disguise unexpected programming errors as API failures", async () => {
-    const error = new TypeError("Unexpected page bug");
-    await expect(getApiResult(async () => {
-      throw error;
-    })).rejects.toBe(error);
-  });
-
-  it("preserves Next.js notFound control flow", async () => {
-    await expect(getApiResult(async () => notFound()))
-      .rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+  it("preserves Next notFound control flow", async () => {
+    await expect(getApiResult(async () => notFound())).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { CloseIcon, SlidersIcon } from "@/components/ui/icons";
@@ -14,12 +14,12 @@ import {
   countActiveFilters,
   toggleBrand,
   toggleCategory,
+  parsePriceInput,
   type CatalogFacets,
   type CatalogFilters,
 } from "@/lib/catalog/filters";
 import { cn } from "@/lib/cn";
 import { formatBDT } from "@/lib/money";
-import { getCategoryName } from "@/data/categories.mock";
 
 /**
  * Everything that changes the listing, in one client component.
@@ -30,7 +30,7 @@ import { getCategoryName } from "@/data/categories.mock";
  * shipping the whole catalog to the browser.
  */
 export function ListingControls({
-  filters,
+  filters: appliedFilters,
   facets,
   resultCount,
 }: {
@@ -41,11 +41,19 @@ export function ListingControls({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [filters, setOptimisticFilters] = useOptimistic(appliedFilters);
+  const latest = useRef(appliedFilters);
+  useEffect(() => {
+    if (!isPending) latest.current = appliedFilters;
+  }, [appliedFilters, isPending]);
 
   const activeCount = countActiveFilters(filters);
 
-  const apply = (next: CatalogFilters) => {
+  const apply = (update: (current: CatalogFilters) => CatalogFilters) => {
+    const next = update(latest.current);
+    latest.current = next;
     startTransition(() => {
+      setOptimisticFilters(next);
       router.push(buildListingHref(next), { scroll: false });
     });
   };
@@ -75,7 +83,7 @@ export function ListingControls({
           <select
             value={filters.sort}
             onChange={(event) =>
-              apply({ ...filters, sort: event.target.value as CatalogFilters["sort"] })
+              apply((current) => ({ ...current, sort: event.target.value as CatalogFilters["sort"] }))
             }
             className="h-11 rounded-full border border-border-strong bg-white/90 px-3 text-sm font-medium focus:border-brand focus:shadow-[0_0_0_3px_rgba(0,136,255,0.15)] focus:outline-none"
           >
@@ -94,7 +102,7 @@ export function ListingControls({
             <li>
               <Chip
                 label={`Search: ${filters.q}`}
-                onRemove={() => apply({ ...filters, q: "" })}
+                onRemove={() => apply((current) => ({ ...current, q: "" }))}
               />
             </li>
           ) : null}
@@ -102,8 +110,8 @@ export function ListingControls({
           {filters.categories.map((slug) => (
             <li key={`cat-${slug}`}>
               <Chip
-                label={getCategoryName(slug)}
-                onRemove={() => apply(toggleCategory(filters, slug))}
+                label={facets.categories.find((c) => c.slug === slug)?.name ?? slug}
+                onRemove={() => apply((current) => toggleCategory(current, slug))}
               />
             </li>
           ))}
@@ -112,7 +120,7 @@ export function ListingControls({
             <li key={`brand-${brand}`}>
               <Chip
                 label={brand}
-                onRemove={() => apply(toggleBrand(filters, brand))}
+                onRemove={() => apply((current) => toggleBrand(current, brand))}
               />
             </li>
           ))}
@@ -122,7 +130,7 @@ export function ListingControls({
               <Chip
                 label={priceLabel(filters)}
                 onRemove={() =>
-                  apply({ ...filters, minPrice: null, maxPrice: null })
+                  apply((current) => ({ ...current, minPrice: null, maxPrice: null }))
                 }
               />
             </li>
@@ -132,7 +140,7 @@ export function ListingControls({
             <li>
               <Chip
                 label="In stock only"
-                onRemove={() => apply({ ...filters, inStockOnly: false })}
+                onRemove={() => apply((current) => ({ ...current, inStockOnly: false }))}
               />
             </li>
           ) : null}
@@ -140,7 +148,7 @@ export function ListingControls({
           <li>
             <button
               type="button"
-              onClick={() => apply(clearFilters(filters))}
+              onClick={() => apply(clearFilters)}
               // All-side inset: a y-only inset leaves width auto, which
               // collapses the pseudo-element to zero width.
               className="relative h-10 rounded-full px-3 text-sm font-medium text-brand after:absolute after:-inset-0.5 after:content-[''] hover:bg-brand-soft"
@@ -156,20 +164,20 @@ export function ListingControls({
         onClose={() => setSheetOpen(false)}
         title="Filters"
         description={
-          resultCount === 1 ? "1 product" : `${resultCount} products`
+          isPending ? "Updating results..." : resultCount === 1 ? "1 product" : `${resultCount} products`
         }
         footer={
           <div className="flex gap-2">
             <Button
               variant="secondary"
               fullWidth
-              onClick={() => apply(clearFilters(filters))}
+              onClick={() => apply(clearFilters)}
               disabled={activeCount === 0}
             >
               Clear all
             </Button>
             <Button fullWidth onClick={() => setSheetOpen(false)}>
-              Show {resultCount === 1 ? "1 result" : `${resultCount} results`}
+              {isPending ? "Updating results..." : `Show ${resultCount === 1 ? "1 result" : `${resultCount} results`}`}
             </Button>
           </div>
         }
@@ -182,7 +190,7 @@ export function ListingControls({
                 label={category.name}
                 count={category.count}
                 checked={filters.categories.includes(category.slug)}
-                onChange={() => apply(toggleCategory(filters, category.slug))}
+                onChange={() => apply((current) => toggleCategory(current, category.slug))}
               />
             ))}
           </FilterGroup>
@@ -195,7 +203,7 @@ export function ListingControls({
                   label={brand.value}
                   count={brand.count}
                   checked={filters.brands.includes(brand.value)}
-                  onChange={() => apply(toggleBrand(filters, brand.value))}
+                  onChange={() => apply((current) => toggleBrand(current, brand.value))}
                 />
               ))}
             </div>
@@ -209,7 +217,7 @@ export function ListingControls({
             <PriceFields
               key={`${filters.minPrice ?? ""}-${filters.maxPrice ?? ""}`}
               filters={filters}
-              onApply={apply}
+              onApply={(range) => apply((current) => ({ ...current, ...range }))}
             />
           </FilterGroup>
 
@@ -218,7 +226,7 @@ export function ListingControls({
               label="In stock only"
               checked={filters.inStockOnly}
               onChange={() =>
-                apply({ ...filters, inStockOnly: !filters.inStockOnly })
+                apply((current) => ({ ...current, inStockOnly: !current.inStockOnly }))
               }
             />
           </FilterGroup>
@@ -307,17 +315,26 @@ function PriceFields({
   onApply,
 }: {
   filters: CatalogFilters;
-  onApply: (next: CatalogFilters) => void;
+  onApply: (range: Pick<CatalogFilters, "minPrice" | "maxPrice">) => void;
 }) {
   const minRef = useRef<HTMLInputElement>(null);
   const maxRef = useRef<HTMLInputElement>(null);
 
   const commit = () => {
-    const nextMin = parsePrice(minRef.current?.value);
-    const nextMax = parsePrice(maxRef.current?.value);
+    const nextMin = parsePriceInput(minRef.current?.value ?? "");
+    const nextMax = parsePriceInput(maxRef.current?.value ?? "");
+    minRef.current?.setCustomValidity(nextMin === undefined ? "Enter a whole BDT price, such as 1,500 or 1500.00." : "");
+    maxRef.current?.setCustomValidity(nextMax === undefined ? "Enter a whole BDT price, such as 1,500 or 1500.00." : "");
+    if (nextMin === undefined || nextMax === undefined) {
+      (nextMin === undefined ? minRef : maxRef).current?.reportValidity();
+      return;
+    }
 
     if (nextMin === filters.minPrice && nextMax === filters.maxPrice) return;
-    onApply({ ...filters, minPrice: nextMin, maxPrice: nextMax });
+    onApply({
+      minPrice: nextMin !== null && nextMax !== null ? Math.min(nextMin, nextMax) : nextMin,
+      maxPrice: nextMin !== null && nextMax !== null ? Math.max(nextMin, nextMax) : nextMax,
+    });
   };
 
   return (
@@ -327,6 +344,7 @@ function PriceFields({
         <Input
           ref={minRef}
           inputMode="numeric"
+          onInput={(event) => event.currentTarget.setCustomValidity("")}
           defaultValue={filters.minPrice?.toString() ?? ""}
           onBlur={commit}
           onKeyDown={(event) => {
@@ -343,6 +361,7 @@ function PriceFields({
         <Input
           ref={maxRef}
           inputMode="numeric"
+          onInput={(event) => event.currentTarget.setCustomValidity("")}
           defaultValue={filters.maxPrice?.toString() ?? ""}
           onBlur={commit}
           onKeyDown={(event) => {
@@ -356,13 +375,4 @@ function PriceFields({
       </label>
     </div>
   );
-}
-
-/** Tolerates pasted spaces and separators; anything unusable becomes null. */
-function parsePrice(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return null;
-  const parsed = Number(digits);
-  return Number.isFinite(parsed) ? parsed : null;
 }

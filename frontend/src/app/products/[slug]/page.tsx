@@ -9,10 +9,9 @@ import { SpecTable } from "@/components/product/spec-table";
 import { StockBadge } from "@/components/product/stock-badge";
 import { ErrorNotice } from "@/components/ui/error-notice";
 import { CashIcon, TruckIcon } from "@/components/ui/icons";
-import { getCategory } from "@/data/categories.mock";
 import { getApiResult } from "@/lib/api/errors";
 import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/lib/cart/pricing";
-import { getProductBySlug, getRelatedProducts } from "@/lib/catalog/queries";
+import { getProductBySlug } from "@/lib/catalog/queries";
 import { formatBDT } from "@/lib/money";
 
 export async function generateMetadata({
@@ -21,7 +20,7 @@ export async function generateMetadata({
   const { slug } = await params;
   const result = await getApiResult(() => getProductBySlug(slug));
   if (!result.ok) return { title: "Product unavailable" };
-  const product = result.data;
+  const product = result.data?.product;
 
   if (!product) return { title: "Product not found" };
 
@@ -46,12 +45,12 @@ export default async function ProductPage({
       </div>
     );
   }
-  const product = result.data;
+  const product = result.data?.product;
 
   if (!product) notFound();
 
-  const category = getCategory(product.categorySlug);
-  const related = await getApiResult(() => getRelatedProducts(product));
+  const category = { slug: product.categorySlug, name: product.categoryName };
+  const related = result.data!.related;
 
   return (
     <div className="space-y-8 pb-16 md:pb-0">
@@ -65,7 +64,7 @@ export default async function ProductPage({
           <li aria-hidden="true">/</li>
           <li>
             <Link
-              href={`/products?category=${category.slug}`}
+              href={`/products?category=${encodeURIComponent(category.slug)}`}
               className="hover:text-brand"
             >
               {category.name}
@@ -105,7 +104,7 @@ export default async function ProductPage({
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Price includes VAT. Whole taka only — no hidden charges.
+              Price includes VAT. Whole taka only. Delivery is shown in your quote.
             </p>
           </div>
 
@@ -117,7 +116,7 @@ export default async function ProductPage({
               <div>
                 <dt className="font-medium">Delivery</dt>
                 <dd className="text-muted-foreground">
-                  {formatBDT(DELIVERY_FEE)} flat, free on orders over{" "}
+                  {formatBDT(DELIVERY_FEE)} flat, free from{" "}
                   {formatBDT(FREE_DELIVERY_THRESHOLD)}.
                 </dd>
               </div>
@@ -127,7 +126,7 @@ export default async function ProductPage({
               <div>
                 <dt className="font-medium">Payment</dt>
                 <dd className="text-muted-foreground">
-                  Cash on delivery, bKash or Nagad.
+                  Cash on delivery only.
                 </dd>
               </div>
             </div>
@@ -147,18 +146,11 @@ export default async function ProductPage({
         </div>
       </div>
 
-      {related.ok ? (
-        <ProductRail
+      <ProductRail
           title={`More in ${category.name}`}
-          products={related.data}
-          href={`/products?category=${category.slug}`}
+          products={related}
+          href={`/products?category=${encodeURIComponent(category.slug)}`}
         />
-      ) : (
-        <ErrorNotice
-          heading="Related products could not be loaded"
-          problem={related.problem}
-        />
-      )}
     </div>
   );
 }

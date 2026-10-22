@@ -59,7 +59,7 @@ export function CartLineRow({ line }: { line: CartLine }) {
         <div className="flex items-center justify-between gap-2">
           <QuantityStepper
             value={line.quantity}
-            stock={line.stock}
+            stock={99}
             onChange={(next) => setQuantity(line.productId, next)}
           />
 
@@ -77,7 +77,7 @@ export function CartLineRow({ line }: { line: CartLine }) {
 
         {atStockLimit ? (
           <p className="text-xs text-warning">
-            That is all the stock we have right now.
+            Availability will be confirmed by a fresh checkout quote.
           </p>
         ) : null}
       </div>

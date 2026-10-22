@@ -11,6 +11,7 @@ import {
   toSearchParams,
   toggleBrand,
   toggleCategory,
+  parsePriceInput,
   type CatalogFilters,
 } from "@/lib/catalog/filters";
 import type { Product } from "@/types/domain";
@@ -23,10 +24,16 @@ function product(
     name: overrides.slug,
     brand: "Generic",
     categorySlug: "smartphones",
+    categoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    categoryName: "Smartphones",
     description: "",
     stock: 10,
     images: [],
     specs: [],
+    version: 1,
+    featured: false,
+    isArchived: false,
+    saleEligible: true,
     ...overrides,
   };
 }
@@ -150,6 +157,15 @@ describe("buildListingHref", () => {
   it("keeps the query string free of defaults", () => {
     const params = toSearchParams(withFilters({ inStockOnly: false }));
     expect(params.toString()).toBe("");
+  });
+});
+
+describe("strict grouped and decimal prices", () => {
+  it.each([["1,500", 1500], ["1 500", 1500], ["1500.00", 1500], ["1,25,000", 125000], ["0", 0], ["", null]])("accepts %s", (raw, expected) => {
+    expect(parsePriceInput(String(raw))).toBe(expected);
+  });
+  it.each(["1e3", "-50", "+50", "12abc", "1,2,3", "1.25", "1,500.50", "1_500", "Infinity", "NaN", "1000000000"])("rejects %s", (raw) => {
+    expect(parsePriceInput(raw)).toBeUndefined();
   });
 });
 

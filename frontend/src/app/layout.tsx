@@ -5,8 +5,11 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { CartProvider } from "@/lib/cart/store";
+import { getStorefrontConfig } from "@/lib/api/config";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,6 +28,7 @@ export const metadata: Metadata = {
   },
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
+  referrer: "no-referrer",
 };
 
 export const viewport: Viewport = {
@@ -36,10 +40,11 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const { mode } = getStorefrontConfig();
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="font-sans antialiased">
-        <CartProvider>
+        <CartProvider source={mode}>
           <a
             href="#main"
             className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-surface focus:px-4 focus:py-3 focus:text-sm focus:font-medium focus:shadow-lg"
@@ -60,7 +65,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               {/* The catalog sits on a single frosted deck over the light bed. */}
               <div className="deck p-4 sm:p-7">{children}</div>
             </main>
-            <SiteFooter />
+            <SiteFooter mode={mode} />
           </div>
 
           <BottomNav />

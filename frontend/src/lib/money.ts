@@ -13,9 +13,10 @@ const groupedNumber = new Intl.NumberFormat("en-BD", {
   minimumFractionDigits: 0,
 });
 
-/** Coerces anything numeric into a whole, non-negative-safe integer. */
+/** Never display a made-up rounded price when the data violates whole-BDT rules. */
 function toWhole(amount: number): number {
-  return Number.isFinite(amount) ? Math.round(amount) : 0;
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new RangeError("Money must be non-negative whole BDT taka.");
+  return amount;
 }
 
 /** `12500` -> `"৳12,500"` */

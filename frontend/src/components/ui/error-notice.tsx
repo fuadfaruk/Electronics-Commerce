@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertIcon } from "@/components/ui/icons";
 import type { ApiProblem } from "@/types/api";
+import { safeProblem } from "@/lib/api/errors";
 
 function RefreshButton() {
   const router = useRouter();
@@ -21,14 +22,17 @@ function RefreshButton() {
 }
 
 export function ErrorNotice({
-  problem,
+  problem: incoming,
   heading = "This content could not be loaded",
   onRetry,
+  retryable = true,
 }: {
   problem: ApiProblem;
   heading?: string;
   onRetry?: () => void;
+  retryable?: boolean;
 }) {
+  const problem = safeProblem(incoming.status, incoming.code, incoming.traceId);
   return (
     <section
       role="alert"
@@ -50,54 +54,21 @@ export function ErrorNotice({
         {problem.detail}
       </p>
 
-      {problem.errors && Object.keys(problem.errors).length > 0 ? (
-        <ul className="space-y-1 text-sm">
-          {Object.entries(problem.errors).map(([field, messages]) => (
-            <li key={field} className="break-words">
-              <span className="font-medium">{field}: </span>
-              {messages.join(" ")}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {problem.url || problem.cause || problem.traceId || problem.type ? (
+      <p className="text-xs font-mono text-muted-foreground">{problem.code}</p>
+      {problem.traceId ? (
         <dl className="space-y-2 rounded-xl border border-border bg-surface-muted p-3 text-xs">
-          {problem.url ? (
-            <div>
-              <dt className="font-medium">Request</dt>
-              <dd className="mt-0.5 font-mono break-all">
-                {problem.method ?? "GET"} {problem.url}
-              </dd>
-            </div>
-          ) : null}
-          {problem.cause ? (
-            <div>
-              <dt className="font-medium">Cause</dt>
-              <dd className="mt-0.5 break-words">{problem.cause}</dd>
-            </div>
-          ) : null}
           {problem.traceId ? (
             <div>
               <dt className="font-medium">Error reference / trace ID</dt>
               <dd className="mt-0.5 font-mono break-all">{problem.traceId}</dd>
             </div>
           ) : null}
-          {problem.type ? (
-            <div>
-              <dt className="font-medium">Problem type</dt>
-              <dd className="mt-0.5 font-mono break-all">{problem.type}</dd>
-            </div>
-          ) : null}
         </dl>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      {retryable ? <div className="flex flex-wrap gap-2">
         {onRetry ? <Button onClick={onRetry}>Try again</Button> : <RefreshButton />}
-        {/* <Link href="/" className={buttonStyles({ variant: "secondary" })}>
-          Go home
-        </Link> */}
-      </div>
+      </div> : null}
     </section>
   );
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { CATEGORIES } from "@/data/categories.mock";
 import { ChevronRightIcon } from "@/components/ui/icons";
 import { ProductImage } from "@/components/product/product-image";
+import type { Category } from "@/types/domain";
 
 /**
  * Browse-by-category entry points, styled as acrylic modules. These are the
@@ -9,20 +9,20 @@ import { ProductImage } from "@/components/product/product-image";
  * often than they search.
  */
 export function CategoryTiles({
-  counts,
+  categories,
   className,
 }: {
-  counts?: Record<string, number>;
+  categories: Category[];
   className?: string;
 }) {
   return (
     <ul
       className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 ${className ?? ""}`}
     >
-      {CATEGORIES.map((category) => (
+      {categories.map((category) => (
         <li key={category.slug}>
           <Link
-            href={`/products?category=${category.slug}`}
+            href={`/products?category=${encodeURIComponent(category.slug)}`}
             className="acrylic-module group flex h-full flex-col p-3"
           >
             <div className="prism-stage mb-3 aspect-4/3">
@@ -41,9 +41,7 @@ export function CategoryTiles({
               <div className="min-w-0">
                 <p className="mod-title truncate">{category.name}</p>
                 <p className="mod-desc truncate">
-                  {counts?.[category.slug] !== undefined
-                    ? `${counts[category.slug]} items`
-                    : category.blurb}
+                  {category.productCount} items
                 </p>
               </div>
               <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />

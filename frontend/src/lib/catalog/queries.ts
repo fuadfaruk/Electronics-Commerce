@@ -1,81 +1,56 @@
+import "server-only";
 import { cache } from "react";
-import { MOCK_PRODUCTS } from "@/data/products.mock";
-import { fetchProductByIdFromApi, fetchProductsFromApi } from "@/lib/api/products";
-import { isInStock } from "@/lib/catalog/stock";
-import { USE_MOCK_DATA } from "@/types/api";
-import type { Product } from "@/types/domain";
+import { apiCategoryToCategory, apiProductToProduct } from "@/lib/api/adapters";
+import { getStorefrontConfig } from "@/lib/api/config";
+import { parseCategories, parseCategory, parseCatalogPage, parseHome, parseProductDetail } from "@/lib/api/decoders";
+import { ApiRequestError } from "@/lib/api/errors";
+import { serverGet } from "@/lib/api/server";
+import { mockCommerceRead } from "@/lib/catalog/mock";
+import { toSearchParams, type CatalogFilters } from "@/lib/catalog/filters";
 
-/**
- * Data access seam.
- *
- * Every screen reads the catalog through these functions and nothing else.
- * `NEXT_PUBLIC_USE_MOCK_DATA` picks the source: the local mock by default, or
- * `GET /api/v1/Product` through `fetchProductsFromApi` when set to `false`.
- * Product pages then fetch `GET /api/v1/Product/{productId}` for full details.
- *
- * The functions are async in both modes so callers are already written for the
- * network, and filters still run over the full catalog on the server.
- */
+async function read<T>(path: string, decode: (value: unknown) => T, query = new URLSearchParams()): Promise<T> {
+  if (getStorefrontConfig().mode === "mock") return decode(mockCommerceRead(path, query));
+  return serverGet(path, decode, query);
+}
 
-// Share the timed API request across the page and its metadata, not across visitors.
-export const getProducts = cache(async (): Promise<Product[]> => {
-  if (USE_MOCK_DATA) return MOCK_PRODUCTS;
-  return fetchProductsFromApi();
-});
-
-export const getProductBySlug = cache(
-  async (slug: string): Promise<Product | null> => {
-    const products = await getProducts();
-    const product = products.find((product) => product.slug === slug);
-    if (!product || USE_MOCK_DATA) return product ?? null;
-    return fetchProductByIdFromApi(product.id);
-  },
+// React cache only deduplicates a render pass; no persistent or shared user cache.
+export const getCategories = cache(async () =>
+  (await read("Category", parseCategories)).filter((c) => !c.isArchived)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)).map(apiCategoryToCategory),
 );
 
-export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
-  const products = await getProducts();
-  return products.filter((product) => product.featured).slice(0, limit);
+export async function getCategoryBySlug(slug: string) {
+  try { return apiCategoryToCategory(await read(`Category/by-slug/${slug}`, parseCategory)); }
+  catch (error) {
+    if (error instanceof ApiRequestError && error.problem.status === 404) return null;
+    throw error;
+  }
 }
 
-export async function getDealProducts(limit = 8): Promise<Product[]> {
-  const products = await getProducts();
-  return products
-    .filter(
-      (product) =>
-        product.compareAtPrice !== undefined &&
-        product.compareAtPrice > product.price,
-    )
-    .sort((a, b) => a.price - b.price)
-    .slice(0, limit);
+export async function getCatalogPage(filters: CatalogFilters, page = 1, pageSize = 12) {
+  const query = toSearchParams(filters);
+  query.set("page", String(page));
+  query.set("pageSize", String(pageSize));
+  const mode = getStorefrontConfig().mode;
+  return read("Product", (v) => parseCatalogPage(v, mode), query);
 }
 
-/**
- * Same-category picks for the product detail page. In-stock items come first so
- * we are not recommending something that cannot be bought.
- */
-export async function getRelatedProducts(
-  product: Product,
-  limit = 8,
-): Promise<Product[]> {
-  const products = await getProducts();
-  return products
-    .filter(
-      (candidate) =>
-        candidate.categorySlug === product.categorySlug &&
-        candidate.id !== product.id,
-    )
-    .sort(
-      (a, b) =>
-        Number(isInStock(b)) - Number(isInStock(a)) || a.price - b.price,
-    )
-    .slice(0, limit);
-}
+export const getProductBySlug = cache(async (slug: string) => {
+  const mode = getStorefrontConfig().mode;
+  try {
+    const detail = await read(`Product/by-slug/${slug}`, (v) => parseProductDetail(v, mode));
+    return { product: apiProductToProduct(detail.product), related: detail.related.map(apiProductToProduct) };
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.problem.status === 404) return null;
+    throw error;
+  }
+});
 
-/** Used by the home page for its browse-by-category tiles. */
-export async function getCategoryCounts(): Promise<Record<string, number>> {
-  const products = await getProducts();
-  return products.reduce<Record<string, number>>((counts, product) => {
-    counts[product.categorySlug] = (counts[product.categorySlug] ?? 0) + 1;
-    return counts;
-  }, {});
-}
+export const getHomeCollections = cache(async () => {
+  const mode = getStorefrontConfig().mode;
+  const home = await read("Product/home", (v) => parseHome(v, mode));
+  return {
+    featured: home.featured.map(apiProductToProduct), deals: home.deals.map(apiProductToProduct),
+    newArrivals: home.newArrivals.map(apiProductToProduct),
+  };
+});

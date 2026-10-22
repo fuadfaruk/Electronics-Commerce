@@ -17,14 +17,14 @@ const ANCHOR_ID = "primary-buy-panel";
 export function ProductBuyPanel({ product }: { product: Product }) {
   const [quantity, setQuantity] = useState(1);
 
-  const soldOut = product.stock <= 0;
+  const soldOut = product.stock <= 0 || !product.saleEligible;
 
   return (
     <div className="space-y-3">
       <div id={ANCHOR_ID} className="flex flex-wrap items-center gap-3">
         <QuantityStepper
           value={quantity}
-          stock={product.stock}
+           stock={soldOut ? 0 : product.stock}
           onChange={setQuantity}
         />
         <AddToCartButton

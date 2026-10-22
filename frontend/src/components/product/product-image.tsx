@@ -1,5 +1,9 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { FALLBACK_IMAGE, isHttpsImage, isLocalArtwork } from "@/lib/catalog/visuals";
 
 /**
  * Product imagery wrapper.
@@ -26,14 +30,18 @@ export function ProductImage({
   priority?: boolean;
   className?: string;
 }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const safeSource = (isHttpsImage(src) || isLocalArtwork(src)) && failedSource !== src ? src : FALLBACK_IMAGE;
   return (
     <Image
-      src={src}
+      src={safeSource}
       alt={alt}
       fill
       unoptimized
       sizes={sizes}
       priority={priority}
+      onError={() => setFailedSource(src)}
+      referrerPolicy="no-referrer"
       className={cn("object-cover", className)}
     />
   );

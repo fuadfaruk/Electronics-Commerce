@@ -19,7 +19,7 @@ export function QuantityStepper({
   className?: string;
 }) {
   const canDecrease = value > 1;
-  const canIncrease = value < stock;
+  const canIncrease = value < Math.min(stock, 99);
 
   return (
     <div

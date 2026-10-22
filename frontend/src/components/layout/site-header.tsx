@@ -36,16 +36,18 @@ export function SiteHeader() {
           </Suspense>
         </div>
 
-        <nav aria-label="Primary" className="ml-auto hidden md:block">
+        <nav aria-label="Primary" className="ml-auto hidden md:flex">
           <Link
             href="/products"
             className="inline-flex h-11 items-center rounded-xl px-3 text-sm font-medium hover:bg-surface-muted"
           >
             Shop
           </Link>
+          <Link href="/account" prefetch={false} className="inline-flex h-11 items-center rounded-xl px-3 text-sm font-medium hover:bg-surface-muted">Account</Link>
         </nav>
 
-        <CartButton className="ml-auto md:ml-0" />
+        <Link href="/account" prefetch={false} className="ml-auto inline-flex h-11 items-center rounded-xl px-2 text-xs font-medium md:hidden">Account</Link>
+        <CartButton className="md:ml-0" />
       </div>
 
       <div className="px-4 pb-3 md:hidden">

@@ -1,4 +1,3 @@
-import { CATEGORIES, getCategoryName } from "@/data/categories.mock";
 import type { Product } from "@/types/domain";
 
 /**
@@ -72,11 +71,17 @@ function toList(value: string | string[] | undefined): string[] {
 }
 
 function toPrice(value: string | string[] | undefined): number | null {
-  const raw = firstValue(value).trim();
+  return parsePriceInput(firstValue(value)) ?? null;
+}
+
+/** Blank=null, invalid=undefined. Whole decimals and properly grouped prices only. */
+export function parsePriceInput(value: string): number | null | undefined {
+  const raw = value.trim();
   if (!raw) return null;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed);
+  const match = /^(\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3}|\d{1,3}(?: \d{3})+)(?:\.(0{1,2}))?$/.exec(raw);
+  if (!match) return undefined;
+  const parsed = Number(match[1].replace(/[, ]/g, ""));
+  return Number.isSafeInteger(parsed) && parsed <= 999_999_999 ? parsed : undefined;
 }
 
 function toSort(value: string | string[] | undefined): SortKey {
@@ -186,7 +191,7 @@ function haystack(product: Product): string {
     product.name,
     product.brand,
     product.categorySlug,
-    getCategoryName(product.categorySlug),
+    product.categoryName,
     product.description,
   ]
     .join(" ")
@@ -207,7 +212,7 @@ export function searchScore(product: Product, query: string): number {
 
   const name = product.name.toLowerCase();
   const brand = product.brand.toLowerCase();
-  const category = getCategoryName(product.categorySlug).toLowerCase();
+  const category = product.categoryName.toLowerCase();
   const description = product.description.toLowerCase();
 
   let score = 0;
@@ -264,34 +269,34 @@ export function applyFilters(
 }
 
 /**
- * Sorts a copy. Ties always fall back to the incoming catalog order, so the
- * result is fully deterministic rather than relying on engine sort stability.
+ * Sorts a copy with an ID tiebreak, matching the stable server paging contract.
  */
 export function sortProducts(
   products: Product[],
   filters: CatalogFilters,
 ): Product[] {
-  const indexed = products.map((product, index) => ({ product, index }));
+  const indexed = products.map((product) => ({ product }));
+  const tie = (a: { product: Product }, b: { product: Product }) => a.product.id.localeCompare(b.product.id);
 
   switch (filters.sort) {
     case "price-asc":
       indexed.sort(
         (a, b) =>
-          a.product.price - b.product.price || a.index - b.index,
+          a.product.price - b.product.price || tie(a, b),
       );
       break;
 
     case "price-desc":
       indexed.sort(
         (a, b) =>
-          b.product.price - a.product.price || a.index - b.index,
+          b.product.price - a.product.price || tie(a, b),
       );
       break;
 
     case "name-asc":
       indexed.sort(
         (a, b) =>
-          a.product.name.localeCompare(b.product.name) || a.index - b.index,
+          a.product.name.localeCompare(b.product.name) || tie(a, b),
       );
       break;
 
@@ -301,14 +306,14 @@ export function sortProducts(
         indexed.sort(
           (a, b) =>
             searchScore(b.product, filters.q) -
-              searchScore(a.product, filters.q) || a.index - b.index,
+              searchScore(a.product, filters.q) || tie(a, b),
         );
       } else {
         // No search term: surface featured items first, then catalog order.
         indexed.sort(
           (a, b) =>
             Number(Boolean(b.product.featured)) -
-              Number(Boolean(a.product.featured)) || a.index - b.index,
+              Number(Boolean(a.product.featured)) || tie(a, b),
         );
       }
       break;
@@ -352,16 +357,16 @@ export function buildFacets(
     : products;
 
   const brandCounts = new Map<string, number>();
-  const categoryCounts = new Map<string, number>();
+  const categoryCounts = new Map<string, CategoryFacet>();
   let minPrice = 0;
   let maxPrice = 0;
 
   for (const product of visible) {
     brandCounts.set(product.brand, (brandCounts.get(product.brand) ?? 0) + 1);
-    categoryCounts.set(
-      product.categorySlug,
-      (categoryCounts.get(product.categorySlug) ?? 0) + 1,
-    );
+    const category = categoryCounts.get(product.categorySlug);
+    categoryCounts.set(product.categorySlug, {
+      slug: product.categorySlug, name: product.categoryName, count: (category?.count ?? 0) + 1,
+    });
     if (minPrice === 0 || product.price < minPrice) minPrice = product.price;
     if (product.price > maxPrice) maxPrice = product.price;
   }
@@ -370,13 +375,7 @@ export function buildFacets(
     brands: Array.from(brandCounts, ([value, count]) => ({ value, count })).sort(
       (a, b) => a.value.localeCompare(b.value),
     ),
-    categories: CATEGORIES.filter((category) =>
-      categoryCounts.has(category.slug),
-    ).map((category) => ({
-      slug: category.slug,
-      name: category.name,
-      count: categoryCounts.get(category.slug) ?? 0,
-    })),
+    categories: Array.from(categoryCounts.values()),
     minPrice,
     maxPrice,
   };

@@ -17,12 +17,13 @@ describe("formatBDT", () => {
   it("shows no minor units, since backend prices are whole taka", () => {
     expect(formatBDT(0)).toBe("৳0");
     expect(formatBDT(890)).toBe("৳890");
-    expect(formatBDT(1250.6)).toBe("৳1,251");
+    expect(() => formatBDT(1250.6)).toThrow(RangeError);
   });
 
-  it("does not print NaN for bad input", () => {
-    expect(formatBDT(Number.NaN)).toBe("৳0");
-    expect(formatBDT(Number.POSITIVE_INFINITY)).toBe("৳0");
+  it("does not invent zero for invalid input", () => {
+    expect(() => formatBDT(Number.NaN)).toThrow(RangeError);
+    expect(() => formatBDT(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+    expect(() => formatBDT(-1)).toThrow(RangeError);
   });
 });
 

@@ -3,86 +3,35 @@ import { EmptyState } from "@/components/catalog/empty-state";
 import { ListingControls } from "@/components/catalog/listing-controls";
 import { ListingResults } from "@/components/catalog/listing-results";
 import { ErrorNotice } from "@/components/ui/error-notice";
-import { getCategoryName } from "@/data/categories.mock";
+import { getStorefrontConfig } from "@/lib/api/config";
 import { getApiResult } from "@/lib/api/errors";
-import {
-  applyFilters,
-  buildFacets,
-  parseCatalogFilters,
-} from "@/lib/catalog/filters";
-import { getProducts } from "@/lib/catalog/queries";
+import { buildListingHref, parseCatalogFilters } from "@/lib/catalog/filters";
+import { getCatalogPage, getCategoryBySlug } from "@/lib/catalog/queries";
 
 export const metadata: Metadata = {
-  title: "Shop",
-  description: "Browse phones, laptops, components, storage and accessories.",
+  title: "Shop", description: "Browse phones, laptops, components, storage and accessories.",
 };
 
-/**
- * Listing screen, and also the destination for search.
- *
- * All state lives in the URL, so a filtered view can be shared, reloaded and
- * backed out of. The query layer is told nothing about filters — that keeps the
- * data source swappable for a real, server-paged API later.
- */
-export default async function ProductsPage({
-  searchParams,
-}: PageProps<"/products">) {
+export default async function ProductsPage({ searchParams }: PageProps<"/products">) {
   const filters = parseCatalogFilters(await searchParams);
-
-  const heading =
-    filters.categories.length === 1
-      ? getCategoryName(filters.categories[0])
-      : filters.q
-        ? `Results for “${filters.q}”`
-        : "All products";
-
-  const catalog = await getApiResult(getProducts);
-  if (!catalog.ok) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {heading}
-        </h1>
-        <ErrorNotice
-          heading="Products could not be loaded"
-          problem={catalog.problem}
-        />
-      </div>
-    );
-  }
-
-  const results = applyFilters(catalog.data, filters);
-  const facets = buildFacets(catalog.data, filters.q);
-
-  return (
-    <div className="space-y-4">
-      <header className="space-y-0.5">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {heading}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {results.length === 1
-            ? "1 product"
-            : `${results.length} products`}
-        </p>
-      </header>
-
-      <ListingControls
-        filters={filters}
-        facets={facets}
-        resultCount={results.length}
-      />
-
-      {results.length > 0 ? (
-        <ListingResults products={results} />
-      ) : (
-        <EmptyState
-          title="No products match"
-          message="Try a different search term, or remove a filter to see more."
-          actionHref="/products"
-          actionLabel="Clear filters"
-        />
-      )}
-    </div>
-  );
+  const catalog = await getApiResult(() => getCatalogPage(filters));
+  const category = filters.categories.length === 1
+    ? await getApiResult(() => getCategoryBySlug(filters.categories[0])) : null;
+  const heading = category?.ok && category.data ? category.data.name
+    : filters.q ? `Results for "${filters.q}"` : "All products";
+  if (!catalog.ok) return <div className="space-y-4">
+    <h1 className="text-xl font-semibold sm:text-2xl">{heading}</h1>
+    <ErrorNotice heading="Products could not be loaded" problem={catalog.problem} />
+  </div>;
+  const { totalCount, facets } = catalog.data;
+  return <div className="space-y-4">
+    <header className="space-y-1">
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{heading}</h1>
+      <p className="text-sm text-muted-foreground">{totalCount} {totalCount === 1 ? "product" : "products"}</p>
+      {category?.ok && category.data?.isArchived ? <p className="text-xs text-muted-foreground">This category is archived. Existing product references are retained.</p> : null}
+    </header>
+    <ListingControls filters={filters} facets={facets} resultCount={totalCount} />
+    {totalCount > 0 ? <ListingResults key={buildListingHref(filters)} initialPage={catalog.data} filters={filters} mode={getStorefrontConfig().mode} />
+      : <EmptyState title="No products match" message="Try a different search term, or remove a filter to see more." actionHref="/products" actionLabel="Clear filters" />}
+  </div>;
 }
