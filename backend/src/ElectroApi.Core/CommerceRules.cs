@@ -15,7 +15,7 @@ public sealed class CommerceException(int status, string code, string message) :
 public static partial class CommerceRules
 {
     public const string MoneyPolicy = "bdt-cod-v1";
-    public static readonly HashSet<string> VisualKeys = ["smartphones", "laptops", "audio", "wearables", "cameras", "gaming", "accessories", "tablets"];
+    public static readonly HashSet<string> VisualKeys = ["smartphones", "laptops", "audio", "wearables", "cameras", "gaming", "accessories", "tablets", "components", "storage", "networking"];
     public static readonly HashSet<string> Districts = new("Bagerhat,Bandarban,Barguna,Barishal,Bhola,Bogura,Brahmanbaria,Chandpur,Chattogram,Chuadanga,Cox's Bazar,Cumilla,Dhaka,Dinajpur,Faridpur,Feni,Gaibandha,Gazipur,Gopalganj,Habiganj,Jamalpur,Jashore,Jhalokathi,Jhenaidah,Joypurhat,Khagrachhari,Khulna,Kishoreganj,Kurigram,Kushtia,Lakshmipur,Lalmonirhat,Madaripur,Magura,Manikganj,Meherpur,Moulvibazar,Munshiganj,Mymensingh,Naogaon,Narail,Narayanganj,Narsingdi,Natore,Netrokona,Nilphamari,Noakhali,Pabna,Panchagarh,Patuakhali,Pirojpur,Rajbari,Rajshahi,Rangamati,Rangpur,Satkhira,Shariatpur,Sherpur,Sirajganj,Sunamganj,Sylhet,Tangail,Thakurgaon,Chapainawabganj".Split(','), StringComparer.OrdinalIgnoreCase);
     public static MoneySnapshot Totals(decimal subtotal) => new("BDT", subtotal, subtotal >= 5000m || subtotal == 0m ? 0m : 80m, subtotal + (subtotal >= 5000m || subtotal == 0m ? 0m : 80m), MoneyPolicy);
     public static void WholePrice(decimal price)

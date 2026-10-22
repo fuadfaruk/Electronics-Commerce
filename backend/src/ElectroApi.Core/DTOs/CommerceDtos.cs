@@ -40,12 +40,12 @@ public sealed class ProductRequest
     public long ExpectedVersion { get; init; }
 }
 
-public sealed record VersionCommand([Range(1, long.MaxValue)] long ExpectedVersion, [property: StringLength(500)] string? Note);
-public sealed record StockCommand(int Delta, [Range(1, long.MaxValue)] long ExpectedVersion, [property: Required, StringLength(500, MinimumLength = 3)] string Reason);
+public sealed record VersionCommand([Range(1, long.MaxValue)] long ExpectedVersion, [StringLength(500)] string? Note);
+public sealed record StockCommand(int Delta, [Range(1, long.MaxValue)] long ExpectedVersion, [Required, StringLength(500, MinimumLength = 3)] string Reason);
 public sealed record StockResult(Guid ProductId, int Stock, long Version);
-public sealed record FulfillmentCommand(OrderStatus Status, [Range(1, long.MaxValue)] long ExpectedVersion, [property: StringLength(500)] string? Note);
+public sealed record FulfillmentCommand(OrderStatus Status, [Range(1, long.MaxValue)] long ExpectedVersion, [StringLength(500)] string? Note);
 public sealed record QuoteItem(Guid ProductId, [Range(1, 99)] int Quantity);
-public sealed record QuoteRequest([property: Required, MinLength(1), MaxLength(50)] QuoteItem[] Items);
+public sealed record QuoteRequest([Required, MinLength(1), MaxLength(50)] QuoteItem[] Items);
 public sealed record QuoteProblem(Guid ProductId, string Code, string Message);
 public sealed record QuotedLine(Guid ProductId, string Name, string Slug, int Quantity, decimal UnitPrice, decimal LineTotal, int AvailableStock);
 public sealed record QuoteResponse(Guid QuoteId, DateTime ExpiresAt, string OwnerKind, QuotedLine[] Lines, MoneySnapshot Money, QuoteProblem[] Problems);
@@ -64,17 +64,17 @@ public sealed class AddressRequest
     [Required, StringLength(100)] public string District { get; init; } = "";
     [StringLength(4)] public string? Postcode { get; init; }
 }
-public sealed record AcceptOrderRequest(Guid QuoteId, [property: Required] ContactRequest Contact, [property: Required] AddressRequest DeliveryAddress, [property: StringLength(500)] string? Notes);
+public sealed record AcceptOrderRequest(Guid QuoteId, [Required] ContactRequest Contact, [Required] AddressRequest DeliveryAddress, [StringLength(500)] string? Notes);
 public sealed record OrderLineDto(Guid ProductId, string Name, string Slug, int Quantity, decimal UnitPrice, decimal LineTotal);
 public sealed record OrderEventDto(string Action, DateTime CreatedAt, string? Note, Guid? ActorId, long Version);
 public sealed record OrderSummary(Guid Id, string Number, DateTime CreatedAt, OrderStatus Fulfillment, PaymentStatus Payment, decimal Total, long Version);
 public sealed record OrderDto(Guid Id, string Number, DateTime CreatedAt, OrderStatus Fulfillment, PaymentStatus Payment, long Version, ContactSnapshot Contact, AddressSnapshot DeliveryAddress, MoneySnapshot Money, string? Notes, OrderLineDto[] Lines, OrderEventDto[] Events);
-public sealed record GuestExchange(Guid OrderId, [property: Required, StringLength(100)] string Capability);
+public sealed record GuestExchange(Guid OrderId, [Required, StringLength(100)] string Capability);
 public sealed record ClaimRequest(Guid OrderId);
-public sealed record ClaimComplete(Guid ClaimId, [property: Required, StringLength(100)] string Proof);
+public sealed record ClaimComplete(Guid ClaimId, [Required, StringLength(100)] string Proof);
 public sealed record AccountDto(Guid Id, string Name, string Email, bool EmailVerified, bool IsAdmin);
-public sealed record RegisterRequest([property: Required, StringLength(100, MinimumLength = 2)] string Name, [property: Required, EmailAddress, StringLength(254)] string Email, [property: Required, StringLength(128, MinimumLength = 10)] string Password);
-public sealed record LoginRequest([property: Required, EmailAddress, StringLength(254)] string Email, [property: Required, StringLength(128)] string Password);
-public sealed record EmailRequest([property: Required, EmailAddress, StringLength(254)] string Email);
-public sealed record EmailProofRequest(Guid UserId, [property: Required, StringLength(4000)] string Token);
-public sealed record ResetRequest(Guid UserId, [property: Required, StringLength(4000)] string Token, [property: Required, StringLength(128, MinimumLength = 10)] string Password);
+public sealed record RegisterRequest([Required, StringLength(100, MinimumLength = 2)] string Name, [Required, EmailAddress, StringLength(254)] string Email, [Required, StringLength(128, MinimumLength = 10)] string Password);
+public sealed record LoginRequest([Required, EmailAddress, StringLength(254)] string Email, [Required, StringLength(128)] string Password);
+public sealed record EmailRequest([Required, EmailAddress, StringLength(254)] string Email);
+public sealed record EmailProofRequest(Guid UserId, [Required, StringLength(4000)] string Token);
+public sealed record ResetRequest(Guid UserId, [Required, StringLength(4000)] string Token, [Required, StringLength(128, MinimumLength = 10)] string Password);
