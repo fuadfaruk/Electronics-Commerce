@@ -19,12 +19,13 @@ public sealed class OrderController(CommerceSecurity security, ICommerceReposito
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Detail(Guid id, CancellationToken ct)
     {
-        var order = await commerce.Find(id, ct); await access.Require(HttpContext, order); return Ok(CommerceRepository.Map(order!));
+        return Ok(await access.Read(HttpContext, id));
     }
     [HttpGet("attempt/{key}")]
     public async Task<IActionResult> Attempt(string key, CancellationToken ct)
     {
         var owner = await security.Owner(HttpContext);
-        var order = await commerce.Attempt(owner.Key, key, ct); await access.Require(HttpContext, order); return Ok(CommerceRepository.Map(order!));
+        var order = await commerce.Attempt(owner.Key, key, ct);
+        return order is null ? NotFound() : Ok(await access.Read(HttpContext, order.Id));
     }
 }

@@ -44,8 +44,9 @@ public sealed class MailOutboxWorker(IServiceScopeFactory scopes, IConfiguration
                 var ids = await db.EmailOutbox.AsNoTracking().Where(e => e.SentAt == null && e.Attempts < 10 && e.NextAttemptAt <= now && (e.LeaseUntil == null || e.LeaseUntil < now)).OrderBy(e => e.CreatedAt).Take(20).Select(e => e.Id).ToArrayAsync(stoppingToken);
                 foreach (var id in ids)
                 {
+                    now = DateTime.UtcNow;
                     var lease = now.AddMinutes(3);
-                    var claimed = await db.EmailOutbox.Where(e => e.Id == id && e.SentAt == null && (e.LeaseUntil == null || e.LeaseUntil < now)).ExecuteUpdateAsync(s => s.SetProperty(e => e.LeaseUntil, lease).SetProperty(e => e.Attempts, e => e.Attempts + 1), stoppingToken);
+                    var claimed = await db.EmailOutbox.Where(e => e.Id == id && e.SentAt == null && e.Attempts < 10 && e.NextAttemptAt <= now && (e.LeaseUntil == null || e.LeaseUntil < now)).ExecuteUpdateAsync(s => s.SetProperty(e => e.LeaseUntil, lease).SetProperty(e => e.Attempts, e => e.Attempts + 1), stoppingToken);
                     if (claimed == 0) continue;
                     var row = await db.EmailOutbox.AsNoTracking().SingleAsync(e => e.Id == id, stoppingToken);
                     try
@@ -54,7 +55,9 @@ public sealed class MailOutboxWorker(IServiceScopeFactory scopes, IConfiguration
                         using var smtp = new SmtpClient(configuration["Mail:Host"], configuration.GetValue("Mail:Port", 587)) { EnableSsl = configuration.GetValue("Mail:EnableSsl", true), Timeout = 15000 };
                         if (!string.IsNullOrWhiteSpace(configuration["Mail:Username"])) smtp.Credentials = new NetworkCredential(configuration["Mail:Username"], configuration["Mail:Password"]);
                         using var message = new MailMessage(configuration["Mail:Sender"]!, payload.To, payload.Subject, payload.Body) { IsBodyHtml = false };
-                        await smtp.SendMailAsync(message, stoppingToken);
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                        await smtp.SendMailAsync(message, timeout.Token);
                         await db.EmailOutbox.Where(e => e.Id == id && e.LeaseUntil == lease).ExecuteUpdateAsync(s => s.SetProperty(e => e.SentAt, DateTime.UtcNow).SetProperty(e => e.ProtectedPayload, "").SetProperty(e => e.LeaseUntil, (DateTime?)null), stoppingToken);
                     }
                     catch (Exception) when (!stoppingToken.IsCancellationRequested)

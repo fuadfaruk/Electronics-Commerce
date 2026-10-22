@@ -26,7 +26,7 @@ public sealed class AccountController(CommerceSecurity security, OrderAccess acc
     [HttpGet("orders/{id:guid}")]
     public async Task<IActionResult> Order(Guid id, CancellationToken ct)
     {
-        var order = await commerce.Find(id, ct); await access.Require(HttpContext, order, true); return Ok(CommerceRepository.Map(order!));
+        return Ok(await access.Read(HttpContext, id, true));
     }
     [HttpPost("order-claims/request"), EnableRateLimiting("auth")]
     public async Task<IActionResult> RequestClaim(ClaimRequest request, CancellationToken ct)

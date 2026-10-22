@@ -28,11 +28,11 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
     public async Task<IActionResult> Register(RegisterRequest request)
     {
         var email = request.Email.Trim();
-        var existing = await users.FindByEmailAsync(email);
-        if (existing is not null) return Ok(Generic);
         var user = new ApplicationUser { Id = Guid.NewGuid(), UserName = email, Email = email, Name = request.Name.Trim() };
         var password = await users.PasswordValidators[0].ValidateAsync(users, user, request.Password);
         CommerceRules.Require(password.Succeeded, "invalid_password", "Use at least 10 characters with upper and lowercase letters, a number and a symbol.");
+        var existing = await users.FindByEmailAsync(email);
+        if (existing is not null) return Ok(Generic);
         await using var transaction = await db.Database.BeginTransactionAsync();
         var result = await users.CreateAsync(user, request.Password);
         if (result.Succeeded) { await Verification(user); await transaction.CommitAsync(); }
@@ -53,8 +53,14 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
     {
         if (User.Identity?.IsAuthenticated == true)
         {
-            var user = await users.GetUserAsync(User);
-            if (user is not null) await users.UpdateSecurityStampAsync(user);
+            var revoked = false;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                db.ChangeTracker.Clear();
+                var user = await users.GetUserAsync(User);
+                if (user is null || (await users.UpdateSecurityStampAsync(user)).Succeeded) { revoked = true; break; }
+            }
+            if (!revoked) throw new CommerceException(503, "temporarily_unavailable", "Global sign-out could not be confirmed. Retry sign-out before leaving a shared device.");
         }
         await signIn.SignOutAsync();
         Response.Cookies.Delete(CommerceSecurity.AuthCookie, security.Cookie(TimeSpan.Zero));
@@ -102,8 +108,7 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         string token;
         try { token = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(request.Token)); } catch (FormatException) { throw new CommerceException(400, "proof_invalid", "This password reset link is invalid or expired."); }
         if (user is not { EmailConfirmed: true, IsActive: true } || !(await users.ResetPasswordAsync(user, token, request.Password)).Succeeded) throw new CommerceException(400, "proof_invalid", "The reset link is invalid, expired or the password does not meet requirements.");
-        await users.UpdateSecurityStampAsync(user);
-        await users.SetLockoutEndDateAsync(user, null);
+        if (!(await users.SetLockoutEndDateAsync(user, null)).Succeeded) throw new CommerceException(503, "temporarily_unavailable", "Password reset succeeded but account unlock is pending. Sign in after the lockout period.");
         return Ok(new { message = "Password reset. Sign in with your new password." });
     }
 }

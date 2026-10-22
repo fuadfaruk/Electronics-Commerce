@@ -1,4 +1,5 @@
 using ElectroApi.Core;
+using ElectroApi.Core.DTOs;
 using ElectroApi.Core.Entities;
 using ElectroApi.Infrastructure.Data;
 using ElectroApi.Infrastructure.Repositories;
@@ -8,7 +9,18 @@ namespace ElectroApi.Api.Security;
 
 public sealed class OrderAccess(CommerceSecurity security, ApplicationDbContext db)
 {
-    public async Task Require(HttpContext context, Order? order, bool accountOnly = false)
+    public async Task<OrderDto> Read(HttpContext context, Guid id, bool accountOnly = false)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, context.RequestAborted);
+        // Claim revocation and this private snapshot share one authorization/serialization boundary.
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Orders WHERE Id = {id.ToString()} FOR UPDATE", context.RequestAborted);
+        var order = await db.Orders.AsNoTracking().Include(o => o.Lines).Include(o => o.Events).AsSplitQuery().SingleOrDefaultAsync(o => o.Id == id, context.RequestAborted);
+        await Require(context, order, accountOnly);
+        var response = CommerceRepository.Map(order!);
+        await transaction.CommitAsync(context.RequestAborted);
+        return response;
+    }
+    private async Task Require(HttpContext context, Order? order, bool accountOnly)
     {
         if (order is null) throw new CommerceException(404, "not_found", "Order unavailable.");
         if (context.User.Identity?.IsAuthenticated == true)

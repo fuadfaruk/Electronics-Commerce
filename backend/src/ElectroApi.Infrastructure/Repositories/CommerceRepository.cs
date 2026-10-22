@@ -8,6 +8,7 @@ using ElectroApi.Core.Enums;
 using ElectroApi.Core.Interfaces;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using MySql.Data.MySqlClient;
 
 namespace ElectroApi.Infrastructure.Repositories;
 
@@ -46,11 +47,12 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
             if (product.Stock < item.Quantity) problems.Add(new(item.ProductId, "stock_unavailable", $"Only {product.Stock} units are currently available."));
             lines.Add(new(product.Id, product.Name, product.Slug, item.Quantity, product.Price, product.Price * item.Quantity, product.Stock));
         }
-        var quote = new Quote { OwnerKey = owner.Key, ExpiresAt = DateTime.UtcNow.AddMinutes(5), Money = CommerceRules.Totals(lines.Sum(l => l.LineTotal)), Lines = lines.Select(l => new QuoteLine { ProductId = l.ProductId, Quantity = l.Quantity, UnitPrice = l.UnitPrice }).ToList() };
+        var quote = new Quote { OwnerKey = owner.Key, ExpiresAt = DateTime.UtcNow.AddMinutes(15), Money = CommerceRules.Totals(lines.Sum(l => l.LineTotal)), Lines = lines.Select(l => new QuoteLine { ProductId = l.ProductId, Quantity = l.Quantity, UnitPrice = l.UnitPrice }).ToList() };
         if (problems.Count == 0) { db.Quotes.Add(quote); await db.SaveChangesAsync(ct); }
         return new(quote.Id, quote.ExpiresAt, owner.AccountId.HasValue ? "account" : "guest", lines.ToArray(), quote.Money, problems.ToArray());
     }
-    public async Task<OrderDto> Accept(CommerceOwner owner, string key, AcceptOrderRequest request, CancellationToken ct)
+    public Task<OrderDto> Accept(CommerceOwner owner, string key, AcceptOrderRequest request, CancellationToken ct) => Retry(() => AcceptOnce(owner, key, request, ct), ct);
+    private async Task<OrderDto> AcceptOnce(CommerceOwner owner, string key, AcceptOrderRequest request, CancellationToken ct)
     {
         var (contact, address) = CommerceRules.Contact(request, owner.Email);
         var notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
@@ -58,6 +60,7 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         var receipt = await Receipt(owner.Key, "accept-order", key, new { request.QuoteId, contact, address, notes }, ct);
         if (receipt.OrderId is { } accepted)
         {
+            await LockOrder(accepted, ct);
             var existing = (await Find(accepted, ct))!;
             CommerceRules.Require(existing.AccountId == owner.AccountId && (owner.AccountId.HasValue || existing.CheckoutOwner == owner.Key), "not_found", "Order unavailable.", 404);
             await transaction.CommitAsync(ct); return Map(existing);
@@ -115,7 +118,8 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         var rows = await orders.OrderByDescending(o => o.CreatedAt).ThenByDescending(o => o.Id).Skip((page - 1) * pageSize).Take(pageSize).Select(o => new OrderSummary(o.Id, o.Number, o.CreatedAt, o.Fulfillment, o.Payment, o.Money.Total, o.Version)).ToArrayAsync(ct);
         return new(rows, total, page, pageSize);
     }
-    public async Task<StockResult> AdjustStock(Guid actor, Guid productId, string key, StockCommand request, CancellationToken ct)
+    public Task<StockResult> AdjustStock(Guid actor, Guid productId, string key, StockCommand request, CancellationToken ct) => Retry(() => AdjustStockOnce(actor, productId, key, request, ct), ct);
+    private async Task<StockResult> AdjustStockOnce(Guid actor, Guid productId, string key, StockCommand request, CancellationToken ct)
     {
         CommerceRules.Require(request.Delta is not 0 and >= -1000000 and <= 1000000 && request.Reason.Trim().Length is >= 3 and <= 500, "invalid_stock", "A nonzero bounded stock delta and reason are required.");
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
@@ -131,7 +135,8 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         db.StockAdjustments.Add(new() { ProductId = productId, ActorId = actor, Delta = request.Delta, Reason = request.Reason.Trim(), Version = result.Version }); receipt.ResultJson = JsonSerializer.Serialize(result, Json);
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return result;
     }
-    public async Task<OrderDto> ChangeOrder(Guid actor, Guid id, string key, string action, long expectedVersion, string? note, CancellationToken ct)
+    public Task<OrderDto> ChangeOrder(Guid actor, Guid id, string key, string action, long expectedVersion, string? note, CancellationToken ct) => Retry(() => ChangeOrderOnce(actor, id, key, action, expectedVersion, note, ct), ct);
+    private async Task<OrderDto> ChangeOrderOnce(Guid actor, Guid id, string key, string action, long expectedVersion, string? note, CancellationToken ct)
     {
         CommerceRules.Require(note?.Length is null or <= 500, "invalid_notes", "Notes must not exceed 500 characters.");
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
@@ -164,5 +169,19 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         db.Add(audit); order.Events.Add(audit); receipt.OrderId = id;
         db.EmailOutbox.Add(mail.Create(order.Contact.Email, "ElectroMart order update", $"Order {order.Number}: {action}. Total BDT {order.Money.Total:0}; payment {order.Payment}. Your accepted order totals have not changed."));
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return Map(order, true);
+    }
+    private async Task<T> Retry<T>(Func<Task<T>> operation, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await operation(); }
+            catch (Exception exception) when ((exception as MySqlException ?? exception.InnerException as MySqlException)?.Number is 1213 or 1205)
+            {
+                // The failed transaction has disposed/rolled back; retry its entire original-key operation.
+                db.ChangeTracker.Clear();
+                if (attempt >= 2) throw new CommerceException(503, "temporarily_unavailable", "The operation is busy. Recover or retry with the original attempt key.");
+                await Task.Delay(25 * (attempt + 1) + Random.Shared.Next(25), ct);
+            }
+        }
     }
 }

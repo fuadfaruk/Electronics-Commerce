@@ -13,6 +13,12 @@ public sealed class SecurityController(IAntiforgery antiforgery, CommerceSecurit
     [HttpGet("csrf")]
     public async Task<IActionResult> Csrf()
     {
+        if (User.Identity?.IsAuthenticated != true && Request.Cookies.ContainsKey(CommerceSecurity.AuthCookie))
+        {
+            // Supply only login/logout CSRF recovery, without converting rejected account ownership to guest.
+            Response.Headers.CacheControl = "no-store";
+            return Ok(new { token = antiforgery.GetAndStoreTokens(HttpContext).RequestToken, ownerKind = "account", account = (object?)null, sessionExpired = true });
+        }
         var owner = await security.Owner(HttpContext, true);
         var user = owner.AccountId.HasValue ? await security.RequireAccount(HttpContext) : null;
         Response.Headers.CacheControl = "no-store";

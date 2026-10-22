@@ -29,6 +29,10 @@ public sealed class IdentityHttpTests
         Assert.Equal(HttpStatusCode.OK, registered.StatusCode);
         using var duplicate = await CommerceApiFactory.Send(client, "Auth/register", account);
         Assert.Equal(await registered.Content.ReadAsStringAsync(), await duplicate.Content.ReadAsStringAsync());
+        using var weakExisting = await CommerceApiFactory.Send(client, "Auth/register", new { name = "Sample", email = account.email, password = "abcdefghij" });
+        using var weakNew = await CommerceApiFactory.Send(client, "Auth/register", new { name = "Sample", email = "new@example.com", password = "abcdefghij" });
+        Assert.Equal(HttpStatusCode.BadRequest, weakExisting.StatusCode); Assert.Equal(weakExisting.StatusCode, weakNew.StatusCode);
+        Assert.Equal((await weakExisting.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString(), (await weakNew.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         using var unverified = await CommerceApiFactory.Send(client, "Auth/login", new { account.email, account.password });
         Assert.Equal(HttpStatusCode.Unauthorized, unverified.StatusCode);
         using var scope = factory.Services.CreateScope(); var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
@@ -61,9 +65,11 @@ public sealed class IdentityHttpTests
         using var login2 = await CommerceApiFactory.Send(second, "Auth/login", new { email = user.Email, password = "StrongPass1!" }); Assert.Equal(HttpStatusCode.OK, login2.StatusCode);
         using var logout = await CommerceApiFactory.Send(first, "Auth/logout", new { }); Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         using var revoked = await second.GetAsync("/api/v1/Auth/me"); Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
-        using var notGuest = await second.GetAsync("/api/v1/Security/csrf"); Assert.Equal(HttpStatusCode.Unauthorized, notGuest.StatusCode);
+        using var notGuest = await second.GetAsync("/api/v1/Security/csrf"); Assert.Equal(HttpStatusCode.OK, notGuest.StatusCode);
+        var stale = await notGuest.Content.ReadFromJsonAsync<JsonElement>(); Assert.True(stale.GetProperty("sessionExpired").GetBoolean()); Assert.Equal("account", stale.GetProperty("ownerKind").GetString());
         using var invalid = factory.Browser(false); invalid.DefaultRequestHeaders.Add("Cookie", "ElectroMart.Auth=invalid");
-        using var invalidSession = await invalid.GetAsync("/api/v1/Security/csrf"); Assert.Equal(HttpStatusCode.Unauthorized, invalidSession.StatusCode);
+        using var invalidSession = await invalid.GetAsync("/api/v1/Security/csrf"); Assert.Equal(HttpStatusCode.OK, invalidSession.StatusCode);
+        Assert.True((await invalidSession.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("sessionExpired").GetBoolean());
         await users.UpdateSecurityStampAsync(user);
         using var login3 = await CommerceApiFactory.Send(first, "Auth/login", new { email = user.Email, password = "StrongPass1!" }); Assert.Equal(HttpStatusCode.OK, login3.StatusCode);
         scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().ChangeTracker.Clear();

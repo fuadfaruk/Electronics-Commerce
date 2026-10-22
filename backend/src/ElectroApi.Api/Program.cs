@@ -159,9 +159,9 @@ public partial class Program
             throw new InvalidOperationException("Storefront__Origin must be the canonical storefront HTTPS origin (local HTTP is development-only).");
         var keyPath = configuration["Security:KeyPath"];
         if (string.IsNullOrWhiteSpace(keyPath) || !Path.IsPathFullyQualified(keyPath)) throw new InvalidOperationException("Security__KeyPath must be an absolute persistent directory outside deployment artifacts.");
-        var fullKeyPath = Path.GetFullPath(keyPath);
+        var fullKeyPath = Path.GetFullPath(keyPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var contentRoot = Path.GetFullPath(environment.ContentRootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        if (fullKeyPath.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Data Protection keys must be outside deploy artifacts.");
+        if (fullKeyPath.Equals(contentRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || fullKeyPath.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Data Protection keys must be outside deploy artifacts.");
         if (!development)
         {
             if (string.IsNullOrWhiteSpace(configuration["AllowedHosts"]) || configuration["AllowedHosts"] == "*") throw new InvalidOperationException("Production AllowedHosts must contain explicit API hosts.");

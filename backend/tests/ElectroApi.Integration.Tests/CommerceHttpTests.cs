@@ -115,4 +115,19 @@ public sealed class CommerceHttpTests
         using var replayAsGuest = await CommerceApiFactory.Send(browser, "Order", new { quoteId = quote.GetProperty("quoteId").GetGuid(), contact = new { name = "Sample Customer", email = "account@example.com", phone = "01712345678" }, deliveryAddress = new { street = "123 Sample Road", area = "Sample Area", city = "Dhaka", district = "Dhaka" } }, "account-key-123456789"); Assert.Equal(HttpStatusCode.Conflict, replayAsGuest.StatusCode);
         using var privateOrder = await browser.GetAsync("/api/v1/Order/" + order.GetProperty("id").GetGuid()); Assert.Equal(HttpStatusCode.NotFound, privateOrder.StatusCode);
     }
+    [MySqlFact]
+    public async Task Claim_commit_before_waiting_guest_read_rechecks_current_ownership()
+    {
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        using var guest = factory.Browser(); var order = await GuestOrder(factory, guest); var id = order.GetProperty("id").GetGuid();
+        var accountId = await CreateAccount(factory, "owner@example.com");
+        using var scope = factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Orders WHERE Id = {id.ToString()} FOR UPDATE");
+        var pendingRead = guest.GetAsync("/api/v1/Order/" + id);
+        await db.Orders.Where(o => o.Id == id).ExecuteUpdateAsync(s => s.SetProperty(o => o.AccountId, accountId).SetProperty(o => o.Version, o => o.Version + 1));
+        await transaction.CommitAsync();
+        using var response = await pendingRead; Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var attempt = await guest.GetAsync("/api/v1/Order/attempt/http-checkout-123456789"); Assert.Equal(HttpStatusCode.NotFound, attempt.StatusCode);
+    }
 }
