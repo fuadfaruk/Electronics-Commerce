@@ -8,6 +8,8 @@
 .vs/
 *.suo
 *.user
+*.pubxml.user
+*.csproj.user
 *.userosscache
 *.sln.docstates
 
@@ -30,13 +32,24 @@ project.fragment.lock.json
 # Publish output
 publish/
 *.publishsettings
+/backend/src/ElectroApi.Api/Properties/PublishProfiles/
 
 # User-specific / local secrets
 *.local.json
 appsettings.Local.json
-.env
+.env*
+*.env
+*.env.*
+!.env.example
+!.env.*.example
+!*.env.example
 
 # OS files
 .DS_Store
 Thumbs.db
 /backend/src/electroapi.api/Properties/PublishProfiles
+
+# Browser tests and coverage
+coverage/
+playwright-report/
+test-results/
