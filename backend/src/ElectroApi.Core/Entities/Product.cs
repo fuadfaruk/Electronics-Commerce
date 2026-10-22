@@ -1,23 +1,20 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+﻿namespace ElectroApi.Core.Entities;
 
-namespace ElectroApi.Core.Entities
+public sealed class Product
 {
-    public sealed class Product
-    {   
-        public Guid ProductId { get; set; } = Guid.NewGuid();
-        public required string ProductSlug { get; set; }
-        public required string ProductName { get; set; }
-        public string? BrandName { get; set; }
-        public string? ProductCategorySlug { get; set; }
-        public string? ProductDescription { get; set; }
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal? ProductPrice { get; set; }
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal? ProductComparePrice { get; set; }
-        public int? ProductStockQuantity { get; set; }
-        public List<ProductImage> ProductImages { get; set; } = new List<ProductImage>();
-        public List<ProductSpecification> ProductSpecifications { get; set; } = new List<ProductSpecification>();
-        public bool Featured { get; set; } = false;
-    }
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Slug { get; set; }
+    public required string Name { get; set; }
+    public string Brand { get; set; } = "";
+    public Guid CategoryId { get; set; }
+    public Category Category { get; set; } = null!;
+    public string Description { get; set; } = "";
+    public decimal Price { get; set; }
+    public decimal? CompareAtPrice { get; set; }
+    public int Stock { get; set; }
+    public long Version { get; set; } = 1;
+    public bool Featured { get; set; }
+    public bool IsArchived { get; set; }
+    public List<ProductImage> Images { get; set; } = [];
+    public List<ProductSpecification> Specifications { get; set; } = [];
 }
-

@@ -1,0 +1,24 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: electromart_mvp_dev
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set a local MySQL root password}
+      MYSQL_USER: electromart
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set a local MySQL application password}
+    ports:
+      - "127.0.0.1:33084:3306"
+    volumes:
+      - mysql-mvp-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+  mail:
+    image: axllent/mailpit:v1.29
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+volumes:
+  mysql-mvp-data:

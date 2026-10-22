@@ -1,5 +1,5 @@
 using ElectroApi.Api.ExceptionHandling;
-using ElectroApi.Core.Interfaces.Repositories;
+using ElectroApi.Core.Interfaces;
 using ElectroApi.Infrastructure.Data;
 using ElectroApi.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -15,20 +15,16 @@ public partial class Program
         // Add Database Configuration
         var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-        var serverVersion = ServerVersion.Parse(builder.Configuration["Database:ServerVersion"] ?? "8.0.0");
 
         builder.Services
             .AddDbContext<ApplicationDbContext>(options =>
-                options.UseMySql(
+                options.UseMySQL(
                     connectionString,
-                    serverVersion,
                     b => b.MigrationsAssembly("ElectroApi.Infrastructure")
                 )
-                //.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) // Optional: for read-heavy scenarios
             );
 
-        builder.Services.AddScoped<IOrderRepository, OrderRepository>();
-        builder.Services.AddScoped<IProductRepository, ProductRepository>();
+        builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
 
         builder.Services.AddControllers();
         builder.Services.AddProblemDetails();
