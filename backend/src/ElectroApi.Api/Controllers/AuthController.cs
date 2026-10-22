@@ -11,10 +11,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using MySql.Data.MySqlClient;
 
 namespace ElectroApi.Api.Controllers;
 
-[ApiController, AllowAnonymous, EnableRateLimiting("auth"), Route("api/v1/Auth")]
+[ApiController, AllowAnonymous, Route("api/v1/Auth")]
 public sealed class AuthController(UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn, ApplicationDbContext db, ICommerceMail mail, CommerceSecurity security) : ControllerBase
 {
     private static object Generic => new { message = "If this address is eligible, an email has been queued with the next steps." };
@@ -24,7 +25,7 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         db.EmailOutbox.Add(mail.Create(user.Email!, "Verify your ElectroMart account", "Verify your account by opening this link and choosing Confirm verification:\n" + mail.Link("/account/verify", new Dictionary<string, string> { ["userId"] = user.Id.ToString(), ["token"] = token }) + "\nThis link expires in one hour."));
         await db.SaveChangesAsync();
     }
-    [HttpPost("register")]
+    [HttpPost("register"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Register(RegisterRequest request)
     {
         var email = request.Email.Trim();
@@ -34,12 +35,16 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         var existing = await users.FindByEmailAsync(email);
         if (existing is not null) return Ok(Generic);
         await using var transaction = await db.Database.BeginTransactionAsync();
-        var result = await users.CreateAsync(user, request.Password);
-        if (result.Succeeded) { await Verification(user); await transaction.CommitAsync(); }
-        else if (!result.Errors.All(e => e.Code.StartsWith("Duplicate", StringComparison.Ordinal))) throw new CommerceException(400, "invalid_account", "Account details do not meet the requirements.");
+        try
+        {
+            var result = await users.CreateAsync(user, request.Password);
+            if (result.Succeeded) { await Verification(user); await transaction.CommitAsync(); }
+            else if (!result.Errors.All(e => e.Code.StartsWith("Duplicate", StringComparison.Ordinal))) throw new CommerceException(400, "invalid_account", "Account details do not meet the requirements.");
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is MySqlException { Number: 1062 }) { await transaction.RollbackAsync(); }
         return Ok(Generic);
     }
-    [HttpPost("login")]
+    [HttpPost("login"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Login(LoginRequest request)
     {
         var user = await users.FindByEmailAsync(request.Email.Trim());
@@ -51,7 +56,8 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
-        if (User.Identity?.IsAuthenticated == true)
+        var authenticated = User.Identity?.IsAuthenticated == true;
+        if (authenticated)
         {
             var revoked = false;
             for (var attempt = 0; attempt < 3; attempt++)
@@ -64,7 +70,7 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         }
         await signIn.SignOutAsync();
         Response.Cookies.Delete(CommerceSecurity.AuthCookie, security.Cookie(TimeSpan.Zero));
-        return Ok(new { message = "Signed out on all devices." });
+        return Ok(new { message = authenticated ? "Signed out on all devices." : "Signed out." });
     }
     [HttpGet("me")]
     public async Task<IActionResult> Me()
@@ -72,7 +78,7 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         var user = await security.RequireAccount(HttpContext);
         return Ok(CommerceSecurity.Account(user, await users.IsInRoleAsync(user, "Admin")));
     }
-    [HttpPost("verify")]
+    [HttpPost("verify"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Verify(EmailProofRequest request)
     {
         var user = await users.FindByIdAsync(request.UserId.ToString());
@@ -82,14 +88,14 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         if (!(await users.ConfirmEmailAsync(user, token)).Succeeded) throw new CommerceException(409, "proof_expired", "This verification link is invalid or expired. Request a new link.");
         return Ok(new { message = "Email verified. You can now sign in." });
     }
-    [HttpPost("resend")]
+    [HttpPost("resend"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Resend(EmailRequest request)
     {
         var user = await users.FindByEmailAsync(request.Email.Trim());
         if (user is { EmailConfirmed: false, IsActive: true }) await Verification(user);
         return Ok(Generic);
     }
-    [HttpPost("forgot")]
+    [HttpPost("forgot"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Forgot(EmailRequest request)
     {
         var user = await users.FindByEmailAsync(request.Email.Trim());
@@ -101,7 +107,7 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
         }
         return Ok(Generic);
     }
-    [HttpPost("reset")]
+    [HttpPost("reset"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Reset(ResetRequest request)
     {
         var user = await users.FindByIdAsync(request.UserId.ToString());

@@ -116,4 +116,36 @@ public sealed class CheckoutTransactionTests
         Assert.Equal(adjusted, stockReplay); Assert.Equal(1, await scope.StockAdjustments.CountAsync());
         await Assert.ThrowsAsync<CommerceException>(() => commands.AdjustStock(actor, productId, "stale-stock-123456789", new(1, product.Version, "Sample stale"), default));
     }
+    [MySqlFact]
+    public async Task Lock_timeout_retries_are_bounded_roll_back_receipts_and_original_key_can_recover()
+    {
+        await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
+        Guid quoteId;
+        await using (var quoteDb = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(quoteDb, Mail()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
+        await using var locked = Context(database.ConnectionString); await using var blocker = await locked.Database.BeginTransactionAsync();
+        await locked.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Products WHERE Id = {productId.ToString()} FOR UPDATE");
+        await using var buyer = Context(database.ConnectionString); await buyer.Database.OpenConnectionAsync(); await buyer.Database.ExecuteSqlRawAsync("SET SESSION innodb_lock_wait_timeout = 1");
+        var service = new CommerceRepository(buyer, Mail());
+        var exception = await Assert.ThrowsAsync<CommerceException>(() => service.Accept(Owner(), "timeout-recovery-123456", Request(quoteId), default)); Assert.Equal(503, exception.Status);
+        Assert.Equal(0, await buyer.CommandReceipts.CountAsync()); Assert.Equal(0, await buyer.Orders.CountAsync());
+        await blocker.CommitAsync();
+        var recovered = await service.Accept(Owner(), "timeout-recovery-123456", Request(quoteId), default);
+        Assert.NotEqual(Guid.Empty, recovered.Id); Assert.Equal(1, await buyer.Orders.CountAsync()); Assert.Equal(2, await buyer.Products.Where(p => p.Id == productId).Select(p => p.Stock).SingleAsync());
+    }
+    [MySqlFact]
+    public async Task Stock_adjustment_and_checkout_contention_never_lose_stock_updates()
+    {
+        await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
+        Guid quoteId;
+        await using (var db = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(db, Mail()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
+        async Task Accept() { await using var db = Context(database.ConnectionString); await new CommerceRepository(db, Mail()).Accept(Owner(), "stock-race-order-123456", Request(quoteId), default); }
+        async Task<int> Adjust()
+        {
+            await using var db = Context(database.ConnectionString);
+            try { await new CommerceRepository(db, Mail()).AdjustStock(Guid.NewGuid(), productId, "stock-race-adjust-123456", new(1, 1, "Sample stock count"), default); return 1; }
+            catch (CommerceException exception) { Assert.Equal("stale_version", exception.Code); return 0; }
+        }
+        var adjustment = Adjust(); await Task.WhenAll(Accept(), adjustment);
+        await using var check = Context(database.ConnectionString); Assert.Equal(2 + await adjustment, await check.Products.Where(p => p.Id == productId).Select(p => p.Stock).SingleAsync()); Assert.Equal(1, await check.Orders.CountAsync());
+    }
 }

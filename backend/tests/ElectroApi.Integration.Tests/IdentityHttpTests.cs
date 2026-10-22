@@ -45,6 +45,7 @@ public sealed class IdentityHttpTests
         var cookie = login.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("ElectroMart.Auth="));
         Assert.Contains("httponly", cookie.ToLowerInvariant()); Assert.Contains("secure", cookie.ToLowerInvariant()); Assert.Contains("samesite=lax", cookie.ToLowerInvariant()); Assert.DoesNotContain("domain=", cookie.ToLowerInvariant());
         using var me = await client.GetAsync("/api/v1/Auth/me"); Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        for (var i = 0; i < 20; i++) { using var routineRead = await client.GetAsync("/api/v1/Auth/me"); Assert.Equal(HttpStatusCode.OK, routineRead.StatusCode); }
         using var known = await CommerceApiFactory.Send(client, "Auth/forgot", new { account.email });
         using var unknown = await CommerceApiFactory.Send(client, "Auth/forgot", new { email = "unknown@example.com" });
         Assert.Equal(await known.Content.ReadAsStringAsync(), await unknown.Content.ReadAsStringAsync());

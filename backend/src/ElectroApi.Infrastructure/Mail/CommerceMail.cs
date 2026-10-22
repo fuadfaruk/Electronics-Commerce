@@ -41,6 +41,8 @@ public sealed class MailOutboxWorker(IServiceScopeFactory scopes, IConfiguration
                 var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 var mail = scope.ServiceProvider.GetRequiredService<CommerceMail>();
                 var now = DateTime.UtcNow;
+                var retention = now.AddDays(-1);
+                await db.EmailOutbox.Where(e => e.SentAt == null && e.CreatedAt < retention && (e.LeaseUntil == null || e.LeaseUntil < now)).ExecuteUpdateAsync(s => s.SetProperty(e => e.ProtectedPayload, "").SetProperty(e => e.Attempts, 10), stoppingToken);
                 var ids = await db.EmailOutbox.AsNoTracking().Where(e => e.SentAt == null && e.Attempts < 10 && e.NextAttemptAt <= now && (e.LeaseUntil == null || e.LeaseUntil < now)).OrderBy(e => e.CreatedAt).Take(20).Select(e => e.Id).ToArrayAsync(stoppingToken);
                 foreach (var id in ids)
                 {
@@ -65,6 +67,7 @@ public sealed class MailOutboxWorker(IServiceScopeFactory scopes, IConfiguration
                         // Never log SMTP exceptions: messages may contain recipient addresses or proofs.
                         logger.LogWarning("Email outbox delivery failed; a protected retry was scheduled.");
                         await db.EmailOutbox.Where(e => e.Id == id && e.LeaseUntil == lease).ExecuteUpdateAsync(s => s.SetProperty(e => e.NextAttemptAt, DateTime.UtcNow.AddSeconds(Math.Min(3600, 15 * Math.Pow(2, row.Attempts)))).SetProperty(e => e.LeaseUntil, (DateTime?)null), stoppingToken);
+                        if (row.Attempts >= 10) await db.EmailOutbox.Where(e => e.Id == id).ExecuteUpdateAsync(s => s.SetProperty(e => e.ProtectedPayload, ""), stoppingToken);
                     }
                 }
             }

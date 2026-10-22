@@ -10,24 +10,29 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ElectroApi.Integration.Tests;
 
-internal sealed class CommerceApiFactory(string connectionString, string keyPath, bool mailEnabled = false) : WebApplicationFactory<Program>
+internal sealed class CommerceApiFactory(string connectionString, string keyPath, bool mailEnabled = false, string environment = "Development", IReadOnlyDictionary<string, string?>? overrides = null) : WebApplicationFactory<Program>
 {
     public const string Origin = "https://localhost:3000";
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-        builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        builder.UseEnvironment(environment);
+        builder.ConfigureAppConfiguration((_, configuration) =>
         {
-            ["ConnectionStrings:DefaultConnection"] = connectionString,
-            ["Storefront:Origin"] = Origin,
-            ["Security:KeyPath"] = keyPath,
-            ["Security:DevelopmentHttps"] = "true",
-            ["Mail:Host"] = mailEnabled ? "127.0.0.1" : "",
-            ["Mail:Port"] = "1025",
-            ["Mail:EnableSsl"] = "false",
-            ["Logging:LogLevel:Default"] = "Warning",
-            ["Mail:Sender"] = "development@example.com"
-        }));
+            var settings = new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = connectionString,
+                ["Storefront:Origin"] = Origin,
+                ["Security:KeyPath"] = keyPath,
+                ["Security:DevelopmentHttps"] = "true",
+                ["Mail:Host"] = mailEnabled ? "127.0.0.1" : "",
+                ["Mail:Port"] = "1025",
+                ["Mail:EnableSsl"] = "false",
+                ["Logging:LogLevel:Default"] = "Warning",
+                ["Mail:Sender"] = "development@example.com"
+            };
+            foreach (var item in overrides ?? new Dictionary<string, string?>()) settings[item.Key] = item.Value;
+            configuration.AddInMemoryCollection(settings);
+        });
     }
     public async Task InitializeDatabase()
     {
