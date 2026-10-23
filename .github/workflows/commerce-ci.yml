@@ -105,10 +105,7 @@ jobs:
         run: npm run test:e2e
       - name: Capture NuGet Vulnerability Evidence
         if: always()
-        run: |
-          test -d artifacts || mkdir artifacts
-          mkdir -p artifacts/security
-          dotnet list backend/ElectroApi.slnx package --vulnerable --include-transitive --format json --no-restore > artifacts/security/nuget-audit.json
+        run: node scripts/capture-nuget-audit.mjs
       - name: Gate Runtime And Full Dependency Audits
         if: always()
         run: node scripts/audit-gate.mjs

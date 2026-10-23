@@ -39,5 +39,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "5.0.3"
+  },
+  "overrides": {
+    "@next/eslint-plugin-next@16.4.2": {
+      "fast-glob": "file:./tooling/next-eslint-glob"
+    }
   }
 }

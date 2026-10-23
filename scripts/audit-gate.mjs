@@ -74,26 +74,95 @@ export function evaluateNpmAudit(runtimeReport, fullReport, now = new Date()) {
 
 export function checkNugetAudit(report) {
   const required = ["ElectroApi.Api", "ElectroApi.Core", "ElectroApi.Infrastructure", "ElectroApi.Integration.Tests", "ElectroApi.Unit.Tests"];
-  if (report?.version !== 1 || typeof report.parameters !== "string" ||
-      !report.parameters.includes("--vulnerable") || !report.parameters.includes("--include-transitive") ||
-      !Array.isArray(report.projects) || report.projects.length !== required.length ||
-      required.some((name) => report.projects.filter((project) =>
-        typeof project.path === "string" && project.path.replaceAll("\\", "/").endsWith(`/${name}.csproj`)).length !== 1) ||
-      (report.logs ?? []).some((log) => /^(error|warning)$/i.test(log.level ?? "")) ||
-      (report.problems ?? []).length > 0) {
-    throw new Error("NuGet audit report is missing, malformed, or incomplete.");
+  if (!object(report) || report.version !== 1) {
+    throw new Error("NuGet audit report schema must be a version-1 JSON object.");
   }
+  if (typeof report.parameters !== "string" ||
+      ["--vulnerable", "--include-transitive"].some((flag) => !report.parameters.trim().split(/\s+/).includes(flag))) {
+    throw new Error("NuGet audit parameters must include --vulnerable and --include-transitive.");
+  }
+  const array = (value, field) => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new Error(`NuGet audit ${field} is malformed; expected an array.`);
+    return value;
+  };
+  const checkMessages = (container, scope) => {
+    // NuGet JSON version 1 aggregates warning/error issues into structured problems.
+    for (const field of ["problems", "logs"]) {
+      const entries = array(container[field], `${scope} ${field}`);
+      const levels = field === "problems" ? ["warning", "error"] : ["debug", "verbose", "information", "info", "minimal", "warning", "error"];
+      for (const entry of entries) {
+        if (!object(entry) || typeof entry.level !== "string" || !levels.includes(entry.level.toLowerCase()) ||
+            typeof (field === "problems" ? entry.text : entry.message ?? entry.text) !== "string" ||
+            ["project", "text", "message"].some((key) => entry[key] !== undefined && (typeof entry[key] !== "string" || !entry[key].trim()))) {
+          throw new Error(`NuGet audit ${scope} ${field} entries are malformed.`);
+        }
+      }
+      const blocking = entries.find((entry) => /^(warning|error)$/i.test(entry.level));
+      if (blocking) throw new Error(`NuGet audit ${scope} contains ${blocking.level.toLowerCase()} ${field}; auditing did not complete.`);
+    }
+  };
+  if (array(report.sources, "sources").some((source) => typeof source !== "string" || !source.trim())) {
+    throw new Error("NuGet audit sources entries are malformed.");
+  }
+  checkMessages(report, "report");
+  if (!Array.isArray(report.projects)) throw new Error("NuGet audit projects is malformed; expected an array.");
+  const covered = new Map();
   for (const project of report.projects) {
-    if ((project.problems ?? []).length > 0) throw new Error("NuGet dependency audit could not complete.");
-    for (const framework of project.frameworks ?? []) {
-      if ((framework.problems ?? []).length > 0) throw new Error("NuGet dependency audit could not complete.");
-      for (const entry of [...(framework.topLevelPackages ?? []), ...(framework.transitivePackages ?? [])]) {
-        if (!Array.isArray(entry.vulnerabilities) || entry.vulnerabilities.length > 0) {
-          throw new Error("NuGet dependency advisories are not permitted.");
+    if (!object(project) || typeof project.path !== "string" || !project.path.trim()) {
+      throw new Error("NuGet audit project entries must contain a valid path.");
+    }
+    const name = required.find((candidate) => project.path.replaceAll("\\", "/").endsWith(`/${candidate}.csproj`));
+    if (!name) throw new Error("NuGet audit report contains an unexpected project.");
+    if (covered.has(name)) throw new Error(`NuGet audit report contains duplicate project: ${name}.`);
+    covered.set(name, project);
+  }
+  for (const name of required) {
+    if (!covered.has(name)) throw new Error(`NuGet audit report is missing required project: ${name}.`);
+  }
+  for (const [name, project] of covered) {
+    checkMessages(project, `project ${name}`);
+    // Clean --vulnerable reports legitimately omit frameworks and package lists.
+    for (const framework of array(project.frameworks, `project ${name} frameworks`)) {
+      if (!object(framework) || typeof framework.framework !== "string" || !framework.framework.trim()) {
+        throw new Error(`NuGet audit project ${name} framework entries are malformed.`);
+      }
+      checkMessages(framework, `framework in ${name}`);
+      for (const field of ["topLevelPackages", "transitivePackages"]) {
+        for (const entry of array(framework[field], `framework ${field}`)) {
+          if (!object(entry) || typeof entry.id !== "string" || !entry.id.trim() ||
+              typeof entry.resolvedVersion !== "string" || !entry.resolvedVersion.trim() ||
+              (entry.requestedVersion !== undefined && typeof entry.requestedVersion !== "string")) {
+            throw new Error(`NuGet audit ${field} entries are malformed.`);
+          }
+          if (!Array.isArray(entry.vulnerabilities)) throw new Error("NuGet audit package vulnerability evidence is missing or malformed.");
+          if (entry.vulnerabilities.length > 0) throw new Error("NuGet dependency advisories are not permitted.");
         }
       }
     }
   }
+}
+
+export async function readNugetAudit(directory) {
+  let collection;
+  try { collection = JSON.parse(await readFile(join(directory, "nuget-audit-collection.json"), "utf8")); }
+  catch { throw new Error("NuGet audit collection diagnostics are missing or malformed."); }
+  if (!object(collection) || collection.schemaVersion !== 1 || !["captured", "failed"].includes(collection.status) ||
+      !(collection.exitCode === null || Number.isInteger(collection.exitCode)) ||
+      typeof collection.jsonParsed !== "boolean" || typeof collection.stderrPresent !== "boolean" || typeof collection.timedOut !== "boolean" ||
+      !(collection.errorCode === null || typeof collection.errorCode === "string") || !(collection.signal === null || typeof collection.signal === "string") ||
+      !(collection.failure === null || typeof collection.failure === "string")) {
+    throw new Error("NuGet audit collection diagnostics are malformed or incomplete.");
+  }
+  if (collection.status !== "captured" || collection.exitCode !== 0 || !collection.jsonParsed || collection.stderrPresent ||
+      collection.timedOut || collection.errorCode !== null || collection.signal !== null || collection.failure !== null) {
+    throw new Error("NuGet audit collection did not complete successfully; inspect the retained collection diagnostics.");
+  }
+  let report;
+  try { report = JSON.parse(await readFile(join(directory, "nuget-audit.json"), "utf8")); }
+  catch { throw new Error("NuGet audit report is missing or is not a single JSON document."); }
+  checkNugetAudit(report);
+  return report;
 }
 
 async function npmAudit(frontend, omitDev, outputPath) {
@@ -130,16 +199,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       npmAudit(frontend, false, join(output, "npm-audit-full.json")),
     ]);
     const policyPath = resolve(root, "scripts/dev-advisory-exceptions.json");
-    const [policy, nuget] = await Promise.all([
-      readFile(policyPath, "utf8").then(JSON.parse),
-      readFile(join(output, "nuget-audit.json"), "utf8").then(JSON.parse),
-    ]);
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
     if (policy.schemaVersion !== 1 || !Array.isArray(policy.exceptions) || policy.exceptions.length !== 0) {
       throw new Error("Strict security policy does not allow advisory exceptions.");
     }
     summary = evaluateNpmAudit(runtime, full);
     try {
-      checkNugetAudit(nuget);
+      await readNugetAudit(output);
       summary.nugetVulnerabilityCount = 0;
     } catch (error) {
       summary.status = "failed";

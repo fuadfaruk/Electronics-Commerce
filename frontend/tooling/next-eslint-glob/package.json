@@ -1,0 +1,13 @@
+{
+  "name": "@electromart/next-eslint-glob",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "exports": "./index.cjs",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "tinyglobby": "0.2.17"
+  }
+}

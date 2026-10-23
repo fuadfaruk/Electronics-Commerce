@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { createServer } from "node:net";
 import { promisify } from "node:util";
@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import os from "node:os";
-import { evaluateNpmAudit, checkNugetAudit } from "./audit-gate.mjs";
+import { evaluateNpmAudit, checkNugetAudit, readNugetAudit } from "./audit-gate.mjs";
+import { captureNugetAudit } from "./capture-nuget-audit.mjs";
 import { findCaseCollisions } from "./check-case-paths.mjs";
 import { assertPortsAvailable, createE2eRunner } from "./run-e2e.mjs";
 import { validateWorkflow } from "./validate-workflows.mjs";
@@ -24,7 +25,10 @@ const finding = () => ({
   metadata: { vulnerabilities: { ...counts, high: 1, total: 1 } },
 });
 const projects = ["ElectroApi.Api", "ElectroApi.Core", "ElectroApi.Infrastructure", "ElectroApi.Integration.Tests", "ElectroApi.Unit.Tests"];
-const nuget = () => ({ version: 1, parameters: "--vulnerable --include-transitive", projects: projects.map((name) => ({ path: `/sample/${name}.csproj`, frameworks: [{ framework: "net10.0" }] })) });
+const nuget = () => ({
+  version: 1, parameters: "--vulnerable --include-transitive", sources: ["https://api.nuget.org/v3/index.json"],
+  projects: projects.map((name) => ({ path: `/home/runner/work/Electronics-Commerce/Electronics-Commerce/backend/${name.endsWith(".Tests") ? "tests" : "src"}/${name}/${name}.csproj` })),
+});
 
 test("clean npm graph passes and every development finding still blocks release", () => {
   assert.equal(evaluateNpmAudit(clean(), clean()).status, "passed");
@@ -42,12 +46,191 @@ test("missing inconsistent cyclic and unrecognized npm reports fail closed", () 
   const unknown = finding(); unknown.vulnerabilities.braces.via[0].url = "https://attacker.example/advisory";
   assert.throws(() => evaluateNpmAudit(clean(), unknown), /identifier/);
 });
-test("NuGet graph must cover all five canonical projects with transitive audit", () => {
-  checkNugetAudit(nuget());
-  const missing = nuget(); missing.projects.pop(); assert.throws(() => checkNugetAudit(missing));
-  const error = nuget(); error.logs = [{ level: "warning" }]; assert.throws(() => checkNugetAudit(error));
-  const vulnerable = nuget(); vulnerable.projects[0].frameworks[0].topLevelPackages = [{ vulnerabilities: [{ severity: "high" }] }];
-  assert.throws(() => checkNugetAudit(vulnerable), /advisories/);
+test("NuGet version-1 clean project stubs pass with Linux and Windows paths", () => {
+  const cleanReport = nuget();
+  assert.equal(cleanReport.projects.every((project) => project.frameworks === undefined), true);
+  checkNugetAudit(cleanReport);
+  const windows = nuget();
+  for (const project of windows.projects) project.path = project.path.replace("/home/runner/work", "C:/work").replaceAll("/", "\\");
+  checkNugetAudit(windows);
+  const emptyFrameworks = nuget();
+  for (const project of emptyFrameworks.projects) project.frameworks = [{ framework: "net10.0", topLevelPackages: [], transitivePackages: [] }];
+  checkNugetAudit(emptyFrameworks);
+});
+test("NuGet schema and required flags have specific fail-closed diagnostics", () => {
+  for (const report of [null, [], {}, { ...nuget(), version: "1" }, { ...nuget(), version: 2 }]) {
+    assert.throws(() => checkNugetAudit(report), /schema must be a version-1 JSON object/);
+  }
+  for (const parameters of [null, {}, "", "--vulnerable", "--include-transitive", "--vulnerable-extra --include-transitive", "--vulnerable --include-transitive-extra"]) {
+    assert.throws(() => checkNugetAudit({ ...nuget(), parameters }), /parameters must include --vulnerable and --include-transitive/);
+  }
+});
+test("NuGet coverage rejects missing duplicate and unexpected projects without exposing paths", () => {
+  const missing = nuget(); missing.projects.pop();
+  assert.throws(() => checkNugetAudit(missing), /missing required project: ElectroApi.Unit.Tests/);
+  const missingCore = nuget(); missingCore.projects.splice(1, 1);
+  assert.throws(() => checkNugetAudit(missingCore), /missing required project: ElectroApi.Core/);
+  const duplicate = nuget(); duplicate.projects[1] = { ...duplicate.projects[0] };
+  assert.throws(() => checkNugetAudit(duplicate), /duplicate project: ElectroApi.Api/);
+  const extra = nuget(); extra.projects.push({ path: "/private-project-path/Unexpected.csproj" });
+  assert.throws(() => checkNugetAudit(extra), (error) => {
+    assert.match(error.message, /unexpected project/);
+    assert.doesNotMatch(error.message, /private-project-path|Unexpected.csproj/);
+    return true;
+  });
+});
+test("NuGet warning and error logs and version-1 problems block at every scope", () => {
+  for (const scope of ["report", "project", "framework"]) {
+    for (const field of ["logs", "problems"]) {
+      for (const level of ["warning", "error", "Warning", "Error"]) {
+        const report = nuget();
+        report.projects[0].frameworks = [{ framework: "net10.0" }];
+        const container = scope === "report" ? report : scope === "project" ? report.projects[0] : report.projects[0].frameworks[0];
+        container[field] = [{ level, [field === "problems" ? "text" : "message"]: "private-feed-diagnostic", project: "/private-project-path/Example.csproj" }];
+        assert.throws(() => checkNugetAudit(report), (error) => {
+          assert.match(error.message, new RegExp(`contains ${level.toLowerCase()} ${field}`));
+          assert.doesNotMatch(error.message, /private-feed-diagnostic|private-project-path/);
+          return true;
+        });
+      }
+    }
+  }
+  const information = nuget(); information.logs = [{ level: "Information", message: "Audit finished." }];
+  checkNugetAudit(information);
+});
+test("NuGet optional collections and nested entries reject malformed shapes", () => {
+  const mutations = [
+    (report) => { report.sources = {}; }, (report) => { report.sources = [null]; },
+    (report) => { report.projects = {}; }, (report) => { report.projects[0] = null; },
+    (report) => { report.projects[0].path = ""; },
+    (report) => { report.logs = {}; }, (report) => { report.logs = [null]; },
+    (report) => { report.logs = [{ level: "warning" }]; },
+    (report) => { report.problems = null; }, (report) => { report.problems = [{}]; },
+    (report) => { report.problems = [{ level: "information", text: "Not a version-1 problem level." }]; },
+    (report) => { report.problems = [{ level: "warning", text: "Feed failed.", project: {} }]; },
+    (report) => { report.projects[0].problems = {}; },
+    (report) => { report.projects[0].frameworks = null; },
+    (report) => { report.projects[0].frameworks = [null]; },
+    (report) => { report.projects[0].frameworks = [{ framework: {} }]; },
+    (report) => { report.projects[0].frameworks = [{ framework: "net10.0", problems: {} }]; },
+    (report) => { report.projects[0].frameworks = [{ framework: "net10.0", topLevelPackages: {} }]; },
+    (report) => { report.projects[0].frameworks = [{ framework: "net10.0", transitivePackages: [null] }]; },
+    (report) => { report.projects[0].frameworks = [{ framework: "net10.0", topLevelPackages: [{ id: "Example", resolvedVersion: {} }] }]; },
+  ];
+  for (const mutate of mutations) {
+    const report = nuget(); mutate(report);
+    assert.throws(() => checkNugetAudit(report), /malformed|valid path/);
+  }
+});
+test("NuGet top-level and transitive packages require evidence and every advisory blocks", () => {
+  for (const field of ["topLevelPackages", "transitivePackages"]) {
+    const report = nuget();
+    const entry = { id: "Example.Package", resolvedVersion: "1.0.0", vulnerabilities: [] };
+    report.projects[0].frameworks = [{ framework: "net10.0", [field]: [entry] }];
+    checkNugetAudit(report);
+    for (const vulnerabilities of [undefined, null, {}]) {
+      entry.vulnerabilities = vulnerabilities;
+      assert.throws(() => checkNugetAudit(report), /package vulnerability evidence is missing or malformed/);
+    }
+    for (const severity of ["Low", "Moderate", "High", "Critical"]) {
+      entry.vulnerabilities = [{ severity, advisoryurl: "https://github.com/advisories/GHSA-xxxx-xxxx-xxxx" }];
+      assert.throws(() => checkNugetAudit(report), /dependency advisories are not permitted/);
+    }
+  }
+});
+test("NuGet collector retains diagnostics and never promotes failed subprocess output", { timeout: 10000 }, async (t) => {
+  const parent = process.platform === "win32" ? join(os.tmpdir(), "kilo") : os.tmpdir();
+  await access(parent);
+  const directory = await mkdtemp(join(parent, "electromart-nuget-collector-test-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const stdout = `${JSON.stringify(nuget(), null, 2)}\n`;
+  let collection;
+  await t.test("import-safe collector uses bounded shell-free pinned arguments and retains successful output", async () => {
+    const output = join(directory, "success");
+    const report = await captureNugetAudit(output, { run: async (command, args, options) => {
+      assert.equal(command, "dotnet");
+      assert.deepEqual(args, ["list", "backend/ElectroApi.slnx", "package", "--vulnerable", "--include-transitive", "--format", "json", "--output-version", "1", "--no-restore"]);
+      assert.equal(options.shell, false); assert.equal(options.windowsHide, true);
+      assert.equal(options.timeout, 120_000); assert.equal(options.killSignal, "SIGKILL");
+      assert.equal(options.maxBuffer, 16 * 1024 * 1024); assert.equal(options.encoding, "utf8");
+      assert.equal(options.cwd, fileURLToPath(new URL("../", import.meta.url)));
+      return { stdout, stderr: "" };
+    } });
+    assert.deepEqual(report, nuget());
+    assert.equal(await readFile(join(output, "nuget-audit.stdout.txt"), "utf8"), stdout);
+    assert.equal(await readFile(join(output, "nuget-audit.stderr.txt"), "utf8"), "");
+    assert.equal(await readFile(join(output, "nuget-audit.json"), "utf8"), stdout);
+    collection = JSON.parse(await readFile(join(output, "nuget-audit-collection.json"), "utf8"));
+    assert.equal(collection.status, "captured"); assert.equal(collection.exitCode, 0);
+    assert.equal(collection.failure, null); assert.equal(collection.stdoutBytes, Buffer.byteLength(stdout));
+    assert.deepEqual(await readNugetAudit(output), nuget());
+  });
+  await t.test("exit-zero version-1 warning and error problems are retained but cannot pass the gate", async () => {
+    for (const level of ["warning", "error"]) {
+      const output = join(directory, level);
+      const report = nuget(); report.problems = [{ level, text: "private-feed-problem" }];
+      const raw = JSON.stringify(report);
+      await captureNugetAudit(output, { run: async () => ({ stdout: raw, stderr: "" }) });
+      assert.equal(await readFile(join(output, "nuget-audit.stdout.txt"), "utf8"), raw);
+      assert.equal(await readFile(join(output, "nuget-audit.json"), "utf8"), raw);
+      await assert.rejects(readNugetAudit(output), new RegExp(`contains ${level} problems`));
+    }
+  });
+  const failures = [
+    { name: "nonzero exit with otherwise clean JSON", stdout, stderr: "private-exit-diagnostic", error: { code: 7 }, expected: { exitCode: 7, jsonParsed: true, timedOut: false }, message: /exited unsuccessfully/ },
+    { name: "stderr warning on successful exit", stdout, stderr: "private-warning-diagnostic", expected: { exitCode: 0, jsonParsed: true, stderrPresent: true }, message: /wrote stderr/ },
+    { name: "malformed JSON", stdout: "{private-invalid-json", stderr: "", expected: { exitCode: 0, jsonParsed: false }, message: /single JSON report/ },
+    { name: "console text mixed with JSON", stdout: `private-restore-output\n${stdout}`, stderr: "", expected: { exitCode: 0, jsonParsed: false }, message: /single JSON report/ },
+    { name: "valid JSON without report schema", stdout: "{}", stderr: "", expected: { exitCode: 0, jsonParsed: true }, message: /version-1 report/ },
+    { name: "timeout retains partial clean JSON", stdout, stderr: "private-timeout-diagnostic", error: { code: null, killed: true, signal: "SIGKILL" }, expected: { exitCode: null, signal: "SIGKILL", jsonParsed: true, timedOut: true }, message: /timed out/ },
+    { name: "executable missing", stdout: "", stderr: "private-exec-diagnostic", error: { code: "ENOENT" }, expected: { exitCode: null, errorCode: "ENOENT", jsonParsed: false, timedOut: false }, message: /could not execute or complete/ },
+    { name: "stdout buffer limit", stdout, stderr: "", error: { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", killed: true, signal: "SIGKILL" }, expected: { errorCode: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", timedOut: false }, message: /could not execute or complete/ },
+  ];
+  for (const [index, fixture] of failures.entries()) {
+    await t.test(fixture.name, async () => {
+      const output = join(directory, `failure-${index}`);
+      await mkdir(output);
+      await writeFile(join(output, "nuget-audit.json"), stdout);
+      await writeFile(join(output, "nuget-audit-collection.json"), JSON.stringify(collection));
+      await assert.rejects(captureNugetAudit(output, { run: async () => {
+        await assert.rejects(readNugetAudit(output), /collection did not complete successfully/);
+        if (fixture.error) throw Object.assign(new Error("private-subprocess-message"), fixture.error, { stdout: fixture.stdout, stderr: fixture.stderr });
+        return { stdout: fixture.stdout, stderr: fixture.stderr };
+      } }), (error) => {
+        assert.match(error.message, fixture.message); assert.doesNotMatch(error.message, /private-/);
+        return true;
+      });
+      assert.equal(await readFile(join(output, "nuget-audit.stdout.txt"), "utf8"), fixture.stdout);
+      assert.equal(await readFile(join(output, "nuget-audit.stderr.txt"), "utf8"), fixture.stderr);
+      const diagnostics = JSON.parse(await readFile(join(output, "nuget-audit-collection.json"), "utf8"));
+      assert.equal(diagnostics.status, "failed"); assert.match(diagnostics.failure, fixture.message);
+      assert.equal(diagnostics.stdoutBytes, Buffer.byteLength(fixture.stdout));
+      assert.equal(diagnostics.stderrBytes, Buffer.byteLength(fixture.stderr));
+      for (const [key, value] of Object.entries(fixture.expected)) assert.equal(diagnostics[key], value);
+      assert.doesNotMatch(JSON.stringify(diagnostics), /private-/);
+      await assert.rejects(access(join(output, "nuget-audit.json")), { code: "ENOENT" });
+      await assert.rejects(readNugetAudit(output), /collection did not complete successfully/);
+      // Even externally restored clean stdout cannot override failed collection diagnostics.
+      await writeFile(join(output, "nuget-audit.json"), stdout);
+      await assert.rejects(readNugetAudit(output), /collection did not complete successfully/);
+    });
+  }
+  await t.test("gate requires intact successful collection diagnostics and a single report document", async () => {
+    const output = join(directory, "success");
+    await rm(join(output, "nuget-audit-collection.json"));
+    await assert.rejects(readNugetAudit(output), /collection diagnostics are missing or malformed/);
+    for (const invalid of ["{", "null", JSON.stringify({}), JSON.stringify({ ...collection, jsonParsed: "true" }), JSON.stringify({ ...collection, signal: {} })]) {
+      await writeFile(join(output, "nuget-audit-collection.json"), invalid);
+      await assert.rejects(readNugetAudit(output), /collection diagnostics are .*malformed/);
+    }
+    for (const invalid of [{ ...collection, exitCode: 1 }, { ...collection, stderrPresent: true }, { ...collection, timedOut: true }]) {
+      await writeFile(join(output, "nuget-audit-collection.json"), JSON.stringify(invalid));
+      await assert.rejects(readNugetAudit(output), /collection did not complete successfully/);
+    }
+    await writeFile(join(output, "nuget-audit-collection.json"), JSON.stringify(collection));
+    await writeFile(join(output, "nuget-audit.json"), `private-console-output\n${stdout}`);
+    await assert.rejects(readNugetAudit(output), /not a single JSON document/);
+  });
 });
 test("index collision check detects duplicate files and mixed-case directories", () => {
   assert.deepEqual(findCaseCollisions(["backend/src/ElectroApi.Api/Program.cs", "backend/src/ElectroApi.Core/Product.cs"]), []);
@@ -69,6 +252,22 @@ test("CI requires actual browser tests, strict audit and framework-dependent Win
   assert.match(workflow, /UseAppHost=false/);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|allowUntrusted/);
   assert.match(workflow, /frontend\/test-results\/\*\*/);
+});
+test("CI uses the NuGet collector before the always-run strict gate and evidence upload", async () => {
+  const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
+  const steps = workflow.jobs.checks.steps;
+  const capture = steps.findIndex((step) => step.name === "Capture NuGet Vulnerability Evidence");
+  const gate = steps.findIndex((step) => step.name === "Gate Runtime And Full Dependency Audits");
+  const upload = steps.findIndex((step) => step.name === "Upload Test, Coverage And Security Evidence");
+  assert.equal(steps[capture].run, "node scripts/capture-nuget-audit.mjs");
+  assert.equal(steps[gate].run, "node scripts/audit-gate.mjs");
+  assert.ok(capture < gate && gate < upload);
+  for (const index of [capture, gate, upload]) {
+    assert.equal(steps[index].if, "always()");
+    assert.equal(steps[index]["continue-on-error"], undefined);
+  }
+  const collector = await readFile(new URL("./capture-nuget-audit.mjs", import.meta.url), "utf8");
+  assert.match(collector, /directory = join\(root, "artifacts\/security"\)/);
 });
 
 test("both CI jobs resolve the temporary .NET install directory only in their setup step", async () => {
