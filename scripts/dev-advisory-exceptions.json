@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [],
+  "reviewRequired": [
+    {
+      "status": "unapproved",
+      "advisoryId": "GHSA-vfj7-8cjw-p6xm",
+      "npmSourceId": 1240992,
+      "scope": "development-only",
+      "observedAt": "2026-10-23T02:58:54Z",
+      "reviewExpiresAt": "2026-11-20T00:00:00Z",
+      "packages": [
+        { "name": "@next/eslint-plugin-next", "version": "16.4.2", "nodes": ["node_modules/@next/eslint-plugin-next"] },
+        { "name": "braces", "version": "3.0.3", "nodes": ["node_modules/braces"] },
+        { "name": "eslint-config-next", "version": "16.4.2", "nodes": ["node_modules/eslint-config-next"] },
+        { "name": "fast-glob", "version": "3.3.1", "nodes": ["node_modules/fast-glob"] },
+        { "name": "micromatch", "version": "4.0.8", "nodes": ["node_modules/micromatch"] }
+      ],
+      "reason": "After the user-approved Next.js and matching lint security upgrade to 16.4.2, public npm audit reports zero runtime findings and the same five high development-only findings. This is review evidence, not an approved exception. No patched braces version is currently published; a framework downgrade is not authorized."
+    }
+  ],
+  "releaseNote": "The operator selected Keep Gate Strict. No advisory exceptions are approved or supported: runtime, full npm, and NuGet audits must contain zero findings. The five observed development findings block paired release artifacts and promotion. A workflow acknowledgment cannot override failed CI. The review expiration is a follow-up deadline, not permission to ship."
+}

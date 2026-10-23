@@ -28,6 +28,7 @@ internal sealed class CommerceApiFactory(string connectionString, string keyPath
                 ["Mail:Port"] = "1025",
                 ["Mail:EnableSsl"] = "false",
                 ["Logging:LogLevel:Default"] = "Warning",
+                ["Commerce:CheckoutEnabled"] = "true",
                 ["Mail:Sender"] = "development@example.com"
             };
             foreach (var item in overrides ?? new Dictionary<string, string?>()) settings[item.Key] = item.Value;
@@ -45,9 +46,9 @@ internal sealed class CommerceApiFactory(string connectionString, string keyPath
         string? token = null;
         if (csrf)
         {
-            using var response = await client.GetAsync("/api/v1/Security/csrf");
+            var response = await client.GetAsync("/api/v1/Security/csrf");
             if (!response.IsSuccessStatusCode) return response;
-            token = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+            using (response) token = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
         }
         using var request = new HttpRequestMessage(new HttpMethod(method), "/api/v1/" + path) { Content = JsonContent.Create(body) };
         if (origin is not null) request.Headers.TryAddWithoutValidation("Origin", origin);

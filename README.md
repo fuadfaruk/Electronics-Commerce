@@ -1,305 +1,279 @@
 # ElectroMart
 
-A full-stack electronics and computer-parts storefront. The customer-facing app is a
-phone-first [Next.js](https://nextjs.org/) storefront; the backend is an ASP.NET Core
-Web API backed by MySQL through Entity Framework Core.
+A phone-first electronics storefront with an ASP.NET Core/MySQL commerce API.
+The MVP supports cash on delivery (COD), verified customer accounts, private guest
+tracking and a protected staff dashboard. There is no online payment integration.
+This is not a production-release approval.
 
-> **Status:** early development. The storefront reads from checked-in mock data by
-> default and can switch to the live catalog with `NEXT_PUBLIC_USE_MOCK_DATA=false`.
-> See [Project status](#project-status) for the remaining work.
+## Toolchain
 
-## Features
+| Component | Pinned version |
+| --- | --- |
+| Node / npm | Node 24.17.0 / npm 12.x |
+| .NET SDK / target | 10.0.401 / net10.0 |
+| EF Core / Identity / local EF CLI | 10.0.13 |
+| Oracle EF MySQL provider | MySql.EntityFrameworkCore 10.0.12 |
+| Connector/NET | MySql.Data 26.10.0 |
+| Database | MySQL 8.4 LTS, InnoDB, utf8mb4 |
+| Frontend | Next.js 16.4.2, React 19.2.8, TypeScript, Tailwind CSS |
+| Testing | xUnit, real MySQL/SMTP HTTP tests, Vitest DOM tests, Playwright |
 
-**Storefront**
+`global.json`, `.nvmrc`, `.config/dotnet-tools.json` and the frontend lockfile make
+the supported toolchain reproducible. Pomelo and EF9 are no longer in the graph.
+Canonical paths are `backend/ElectroApi.slnx`, `backend/src/ElectroApi.*` and
+`backend/tests/ElectroApi.*.Tests`; do not add lowercase aliases.
 
-- Home page with category tiles, featured products and a deals rail.
-- Product listing with search, category, brand, price and in-stock filters plus sorting.
-  Filter state lives in the URL, so views can be shared and the back button works.
-- Product detail pages with an image gallery, specifications, stock badges, related
-  products and a sticky mobile buy bar.
-- Slide-over cart with quantity editing, a free-delivery progress bar and live totals.
-- Mobile-first layout: bottom navigation, bottom-sheet filters, 44px touch targets and
-  safe-area padding.
+## Local Development
 
-**API**
-
-- Versioned REST routes for products and orders (`/api/v1/...`).
-- EF Core data access with repository interfaces and generated MySQL migrations.
-- Product images and key/value specifications stored as owned/related records.
-- OpenAPI document generated in development.
-
-## Tech stack
-
-| Area       | Technology                                                        |
-| ---------- | ----------------------------------------------------------------- |
-| Frontend   | Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS 4   |
-| Backend    | .NET 10, ASP.NET Core Web API, Entity Framework Core 9, Pomelo MySQL |
-| Database   | MySQL 8                                                           |
-| Testing    | Vitest 5 (frontend), xUnit (backend)                              |
-| Tooling    | ESLint 9, npm, `dotnet` CLI, EF Core tools                        |
-| Deployment | GitHub Actions, IIS + Web Deploy, Next.js standalone output       |
-
-## Repository layout
-
-```text
-backend/
-  electro-api.slnx                 solution
-  src/
-    electroapi.api/                ASP.NET Core host, controllers, configuration
-    electroapi.core/               entities, DTOs, enums, repository interfaces
-    electroapi.infrastructure/     EF Core DbContext, repositories, migrations
-  tests/
-    electroapi.unit.tests/         xUnit unit test project
-    electroapi.integration.tests/  xUnit integration test project
-
-frontend/
-  src/
-    app/                           App Router routes (home, listing, detail)
-    components/                    cart, catalog, layout, product, search, ui
-    data/                          mock products and categories
-    lib/                           cart, catalog, API adapters, formatting helpers
-    types/                         frontend domain and API wire types
-  public/placeholders/             SVG placeholder artwork
-
-.github/workflows/                 backend and frontend deploy pipelines
-```
-
-## Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Node.js](https://nodejs.org/) 24.x (20.9 or newer)
-- npm
-- A MySQL 8 server
-- Optional: the EF Core CLI (`dotnet tool install --global dotnet-ef`)
-
-## Getting started
-
-### 1. Clone the repository
+Docker Compose provides a separate `electromart_mvp_dev` schema and local SMTP
+capture. Provide local-only passwords in your shell; they are not supplied by the
+repository. A privileged migration/test connection is distinct from the runtime
+application user.
 
 ```powershell
-git clone https://github.com/fuadfaruk/Electronics-Commerce.git
-cd Electronics-Commerce
+$env:MYSQL_ROOT_PASSWORD = '<local-root-password>'
+$env:MYSQL_PASSWORD = '<local-app-password>'
+docker compose up -d --wait
+dotnet tool restore
+dotnet restore backend/ElectroApi.slnx
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:ConnectionStrings__DefaultConnection = 'Server=127.0.0.1;Port=33084;Database=electromart_mvp_dev;User ID=root;Password=<local-root-password>;SslMode=Disabled;'
+$env:Security__KeyPath = 'C:\LocalState\ElectroMart\keys'
+$env:Storefront__Origin = 'http://localhost:3000'
+dotnet run --project backend/src/ElectroApi.Api --no-launch-profile -- --migrate-dev --seed-dev
+$env:ConnectionStrings__DefaultConnection = 'Server=127.0.0.1;Port=33084;Database=electromart_mvp_dev;User ID=electromart;Password=<local-app-password>;SslMode=Disabled;'
+dotnet run --project backend/src/ElectroApi.Api --no-launch-profile --urls 'http://localhost:5249'
 ```
 
-### 2. Create the database
+Create the key directory outside the checkout/deployment tree and grant access only
+to the application identity. Local keys are not certificate-encrypted by default;
+production requires encrypted persistent keys. The migration/seed CLI refuses a
+nonlocal server or a database other than `electromart_mvp_dev`/`electromart_test_*`.
+Seed refuses a nonempty catalog and labels all 17 products as development samples.
+It does not reset, import or modify an existing production database.
 
-Create the schema and a MySQL user for the application:
-
-```sql
-CREATE DATABASE electro_api CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'electro'@'localhost' IDENTIFIED BY 'your-password';
-GRANT ALL PRIVILEGES ON electro_api.* TO 'electro'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-### 3. Configure the API
-
-The API reads the `DefaultConnection` connection string and uses Pomelo's MySQL
-provider. `backend/src/electroapi.api/appsettings.json` currently contains a local
-development connection string; override it for your machine rather than editing the
-tracked file.
-
-For local development, user secrets are the simplest option:
+In a frontend terminal, use the locked install and explicit server-only settings:
 
 ```powershell
-dotnet user-secrets init --project backend/src/electroapi.api
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" `
-  "Server=localhost;Port=3306;Database=electro_api;Uid=electro;Pwd=your-password;SslMode=None;" `
-  --project backend/src/electroapi.api
+$env:STOREFRONT_MODE = 'live'
+$env:API_BASE_URL = 'http://localhost:5249'
+$env:STOREFRONT_URL = 'http://localhost:3000'
+npm.cmd ci --registry=https://registry.npmjs.org/
+npm.cmd run dev
 ```
 
-Alternatively, set an environment variable for the current shell:
+Run those npm commands from `frontend/`. `STOREFRONT_MODE=mock` explicitly enables
+sample browsing without a backend; checkout, account actions and staff mutations
+are disabled. Production requires an explicit mode and valid configuration. Live
+failures never fall back to samples. Remove obsolete `NEXT_PUBLIC_API_BASE_URL` and
+`NEXT_PUBLIC_USE_MOCK_DATA` settings; browser bundles must not contain API origins.
+
+Mailpit is at `http://localhost:8025`, with SMTP on port 1025. All local recipient
+addresses should be sample `example.com` addresses. Development OpenAPI and Scalar
+are available only in Development; `/health/database` reports reachability without
+revealing connection details.
+
+## Staff Provisioning
+
+There is no public role assignment or default admin password. A hosting operator
+may provision a distinct account with explicitly supplied environment secrets:
 
 ```powershell
-$env:ConnectionStrings__DefaultConnection = "Server=localhost;Port=3306;Database=electro_api;Uid=electro;Pwd=your-password;SslMode=None;"
+$env:Bootstrap__Email = '<operator-email>'
+$env:Bootstrap__Password = '<strong-operator-password>'
+dotnet run --project backend/src/ElectroApi.Api --no-launch-profile -- --bootstrap-admin
 ```
 
-Do not commit real credentials. Remove the placeholder connection string from
-`appsettings.json` before production.
+The command refuses to promote an existing customer account. Supply the same secure
+database and key configuration as the target host. Remove bootstrap variables after
+provisioning; do not put passwords in arguments, scripts, Git or build artifacts.
+Role/active-state changes are checked from the database on every authenticated
+request. Logout revokes all current sessions; password reset invalidates old cookies.
 
-### 4. Apply migrations and run the API
+## Commerce Contract
+
+- `GET /api/v1/Product` uses bounded paging (`pageSize=12`, maximum 100), token-AND
+  search, OR within selected brands/categories, inclusive prices, stock and stable
+  sorting. Facets describe the search-matched catalog before other filters.
+- Product detail uses `/Product/by-slug/{slug}` or the GUID route. Home collections
+  are bounded. `/Category` provides ordered navigation; archived category metadata
+  remains available by slug and existing product references remain valid.
+- Products have permanent unique slugs, a category FK, ordered images/specifications,
+  positive whole-BDT prices and a concurrency version. Archive removes new-sale
+  eligibility without destroying order references. Metadata saves never overwrite
+  stock; staff use a signed delta, expected version, reason and idempotency key.
+- `POST /Checkout/quote` merges bounded integer quantities, returns authoritative
+  line prices/availability and a 15-minute owner-bound quote. It does not reserve
+  stock. BDT delivery is 80 below 5000 and free at or above 5000.
+- `POST /Order` accepts only quote/contact/address/notes with an `Idempotency-Key`.
+  The API creates IDs, timestamps, ownership, line and contact/money snapshots.
+  Exactly-once receipts, ordered row locks, conditional stock updates and bounded
+  deadlock retries prevent overselling and same-key double acceptance.
+- `GET /Order/attempt/{key}` recovers an uncertain checkout under its original
+  owner. Same-key exact replay resolves accepted attempts even after quote expiry.
+  Changed key payloads are conflicts, not new orders. Browser recovery stores only
+  quote/key/hash/source/item references, never contact details or credentials.
+- New checkout requires usable Web Locks and a durably saved original-attempt
+  reference. Denied storage reads/writes or rejected/unsupported locks refuse new
+  submission; existing uncertain attempts retain original-key receipt/replay.
+  Unsaved, known-unsubmitted attempts keep their key in tab memory and must persist
+  it before retrying. Degraded carts are visibly tab-only and never overwrite shared
+  storage. Quantity edits invalidate quote review even when reversed.
+- Fulfillment is `Pending -> Confirmed -> Shipped -> Delivered`; cancellation is
+  allowed only before shipment and restores stock once. Payment is separately
+  `Unpaid -> Collected`, allowed once after delivery for the full immutable amount.
+  Collected records customer cash, not courier settlement. No post-shipment refund
+  or return accounting is implemented.
+
+## Security Boundaries
+
+The browser calls allowlisted same-origin `/api/bff/...` routes. Only the Next server
+knows `API_BASE_URL`; it forwards selected commerce cookies and separate
+`Set-Cookie` headers, never arbitrary Authorization/owner headers or target URLs.
+Every unsafe request needs the canonical Origin, permitted Fetch Metadata and the
+backend antiforgery token from `GET /Security/csrf`. Direct API calls receive the
+same authorization and antiforgery checks; there is no browser CORS bypass.
+
+Backend Identity owns account verification, password hashing/lockout, sessions and
+Admin policies. Cookies are HttpOnly, host-only, bounded, SameSite=Lax and Secure
+in production. Security tokens must be refreshed after identity changes. Expired
+account cookies cannot silently turn an uncertain account checkout into a guest.
+
+Guest order IDs and email addresses do not authorize access. The original protected
+checkout owner may read its own order, or an emailed opaque fragment capability can
+be explicitly exchanged for a 30-minute per-order grant. Capability hashes are stored
+instead of raw tokens. Links are stripped from the address bar and kept in tab
+memory; GET/mount never consumes them. Claim requires a matching verified account,
+a fresh 20-minute one-use emailed proof and explicit confirmation. Claim revokes
+previous capabilities/grants and retains the original guest contact snapshot.
+
+Recovery emails use generic responses to avoid account/order enumeration. A
+certificate/ACL-protected Data Protection key ring protects queued email payloads.
+SMTP retries use leases, bounded attempts and cancellation; sent/exhausted payloads
+are scrubbed. Failed delivery does not undo an accepted order. Error responses use
+fixed codes/details and correlation IDs, not database/SMTP exceptions or PII.
+
+## Required Production Settings
+
+Provide values through protected hosting settings, not checked-in JSON or packages:
+
+| API setting | Requirement |
+| --- | --- |
+| `ConnectionStrings__DefaultConnection` | Dedicated runtime MySQL user, `SslMode=VerifyFull` |
+| `Storefront__Origin` | Exact canonical HTTPS origin |
+| `AllowedHosts` | Explicit API host names, no wildcard |
+| `Security__KeyPath` | Persistent absolute path outside deployment artifacts, restrictive ACL |
+| `Security__KeyCertificateThumbprint` | LocalMachine/My certificate with private-key access for the app identity |
+| `Security__TrustedProxies__0` etc. | Only verified proxy IPs, one forwarded hop |
+| `Mail__Host`, `Mail__Port`, `Mail__Sender` | Approved SMTP service/sender |
+| `Mail__EnableSsl` | `true` in production |
+| `Mail__Username`, `Mail__Password` | Protected SMTP secrets if required |
+| `ASPNETCORE_ENVIRONMENT` | `Production` |
+| `Commerce__CheckoutEnabled` | Keep `false` through deployment and post-deploy checks; explicitly set `true` only when the operator reopens checkout |
+
+Frontend requires `STOREFRONT_MODE=live`, server-only `API_BASE_URL` and canonical
+`STOREFRONT_URL`; remote HTTP URLs are rejected. Host-only cookies have no Domain
+attribute. Production IIS requires the .NET10 Hosting Bundle, Node24 and
+HttpPlatformHandler support for standalone Next.js. Verify the host rather than
+assuming a legacy provider can run this stack.
+
+## Validation
 
 ```powershell
-dotnet ef database update `
-  --project backend/src/electroapi.infrastructure `
-  --startup-project backend/src/electroapi.api
-
-dotnet run --project backend/src/electroapi.api
+dotnet build backend/ElectroApi.slnx
+$env:ELECTROMART_TEST_MYSQL = 'Server=127.0.0.1;Port=33084;User ID=root;Password=<local-root-password>;SslMode=Disabled;'
+$env:ELECTROMART_TEST_SMTP = '1'
+dotnet test backend/ElectroApi.slnx --collect:'XPlat Code Coverage' --logger trx
+dotnet list backend/ElectroApi.slnx package --vulnerable --include-transitive
 ```
 
-The HTTP profile listens on `http://localhost:5249`; the HTTPS profile uses
-`https://localhost:7220`. In development, the OpenAPI document is available at
-`http://localhost:5249/openapi/v1.json` (there is no Swagger UI).
-
-To create a new migration after changing the model:
+Each real-provider test creates a fresh `electromart_test_*` schema on MySQL 8.4.
+SMTP tests require actual Mailpit on 1025/8025; a missing service is not evidence of
+a passing mail gate. Without the explicit MySQL connection integration tests are
+reported skipped, not validated.
 
 ```powershell
-dotnet ef migrations add <MigrationName> `
-  --project backend/src/electroapi.infrastructure `
-  --startup-project backend/src/electroapi.api
+npm.cmd ci --registry=https://registry.npmjs.org/
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test:coverage
+npm.cmd run build
+npm.cmd exec playwright install chromium
+npm.cmd run test:e2e
+npm.cmd audit --omit=dev
+npm.cmd audit
 ```
 
-### 5. Run the storefront
+Run npm commands from `frontend/` with explicit live settings and the test-service
+variables. E2E uses the actual production Next build, seeded API, MySQL and SMTP
+capture, on desktop and mobile. It does not run a dev server or substitute mocked
+checkout responses. Optional `E2E_TLS_CERT`/`E2E_TLS_KEY` provide trusted local TLS;
+never disable TLS verification to hide a certificate or hosting problem. Browser
+traces/video/screenshots are disabled to avoid capturing email proofs.
 
-```powershell
-cd frontend
-npm install
-Copy-Item .env.local.example .env.local   # optional; only needed when wiring the API
-npm run dev
-```
+Local validation on 2026-10-23 passed 273 frontend tests (90.44% line coverage),
+lint, explicit-live typecheck, the Next.js 16.4.2 production build, 14 desktop/mobile
+browser tests over trusted local HTTPS, and 14 release-automation regressions.
+Retained current-backend evidence passes 18 unit plus 43 real-MySQL/SMTP integration
+tests with zero failures/skips; Debug/Release builds and framework-dependent publish
+passed. Workflow/PowerShell syntax and tracked/untracked case-fold checks also pass.
+Playwright artifacts are separate from Vitest JUnit output; both reports survive E2E,
+and all owned API/Next/TLS test listeners were stopped after the run.
 
-The storefront runs at `http://localhost:3000`. It needs no API or environment
-configuration while mock data is enabled. To use the live catalog, set
-`NEXT_PUBLIC_USE_MOCK_DATA=false` in `.env.local` and make sure the API is running
-on `NEXT_PUBLIC_API_BASE_URL`.
+Fresh audits found Next.js runtime advisories `GHSA-2464-fhr4-w9xw`,
+`GHSA-673q-mjm6-r5xr` and `GHSA-p3m5-59mp-jv5r` in the former 16.3.8 pin. The user
+approved updating Next.js and matching lint tooling to 16.4.2; React and unrelated
+dependency versions were preserved. A clean locked install and full validation
+passed after the update. Runtime npm and transitive NuGet audits now report zero
+findings. The full npm audit still reports five development-only high findings
+from `GHSA-vfj7-8cjw-p6xm` in the lint chain (`braces`/`micromatch`/`fast-glob`);
+latest `braces` remains 3.0.3 with no published compatible patch. **Keep Gate Strict**
+remains in force: no exception, force downgrade or deployment bypass is enabled.
+Failed local security evidence (`revision:null`) correctly rejects package assembly.
+No security-approved paired artifact, current-tail Linux CI run, actual IIS deployment
+or failed-rollout rehearsal has been verified. Generated reports/coverage are ignored;
+exact continuation evidence is recorded in the existing `.kilo/plans/` completion plan.
 
-## Configuration
+## Release And Migration
 
-### Backend
+PR/push workflows validate one revision and prepare paired backend/frontend
+artifacts only after required gates. Deployment is separate and manual, consumes
+the same verified artifact pair, and must use a protected environment. No push,
+hosting change, production migration, credential rotation or deployment is authorized
+by an implementation/test run.
 
-| Setting                             | Where                                          | Purpose                              |
-| ----------------------------------- | ---------------------------------------------- | ------------------------------------ |
-| `ConnectionStrings:DefaultConnection` | user secrets, environment, or `appsettings.json` | MySQL server, database and credentials |
-| `ASPNETCORE_ENVIRONMENT`            | launch profile / environment                   | Enables development OpenAPI output   |
+Before promotion, the operator must confirm Node24/.NET10/MySQL8.4/TLS/SMTP support,
+key-store persistence/ACL/certificate access, environment protections, catalog and
+approved delivery/warranty/privacy/contact policies, backups and reviewed migration
+SQL. A MySQL production schema is not automatically reset or seeded. This initial
+Oracle migration replaces the obsolete Pomelo development schema; preserved
+production data requires a reviewed copy/cleanup/migration path, not an assumed
+in-place upgrade. Fractional legacy prices must be audited/rejected or explicitly
+rounded by an approved migration, never silently rounded by the storefront.
 
-### Frontend
+Stop checkout and both application pools during contract-changing promotion. Deploy
+the tested artifact pair, run post-deploy health/contract/auth checks, then reopen
+checkout. Preserve the previous compatible pair and database backup. If either
+deployment fails, remain in maintenance for operator recovery; restarting a mixed
+contract pair is not an atomic rollback. Use reviewed SQL or an explicit migration
+job, never migrate on each web-process startup.
 
-| Variable                     | Default                 | Purpose                                           |
-| ---------------------------- | ----------------------- | ------------------------------------------------- |
-| `NEXT_PUBLIC_API_BASE_URL`   | `http://localhost:5249` | Base URL of the ASP.NET API                        |
-| `NEXT_PUBLIC_USE_MOCK_DATA`  | `true`                  | `true` serves mock data; `false` reads `GET /api/v1/Product` |
+The packaged API defaults `Commerce:CheckoutEnabled` to `false`. A hosting-level
+`Commerce__CheckoutEnabled=true` overrides that file, so the operator must explicitly
+close checkout before promotion and keep it closed during verification. The pause
+rejects new quote and order-acceptance requests with a safe maintenance response;
+catalog browsing and existing private receipt/original-attempt reads remain available.
+An uncertain checkout must recover its original attempt rather than create a new key.
+Promotion does not change protected hosting settings or reopen checkout automatically.
 
-`NEXT_PUBLIC_*` values are inlined at build time, so they must be present when
-`npm run build` runs, not just at runtime.
-
-## API reference
-
-All routes are JSON and live under `/api/v1`. There is currently no authentication
-or authorization.
-
-| Method | Route                  | Description                                                        |
-| ------ | ---------------------- | ------------------------------------------------------------------ |
-| GET    | `/api/v1/Product`      | List all products                                                  |
-| POST   | `/api/v1/Product`      | Create a product                                                   |
-| GET    | `/api/v1/Order`        | List all orders                                                    |
-| POST   | `/api/v1/Order`        | Create an order (always starts as `Pending`)                       |
-| PUT    | `/api/v1/Order/{id}`   | Update the products and address of a pending order                 |
-| PATCH  | `/api/v1/Order/{id}`   | Change an order's status                                           |
-| GET    | `/api/v1/Test`         | Reachability check with a timestamp                                |
-
-Example product payload:
-
-```json
-{
-  "productSlug": "pixel-9-pro",
-  "productName": "Pixel 9 Pro",
-  "brandName": "Google",
-  "productCategorySlug": "smartphones",
-  "productDescription": "6.3-inch flagship with a triple camera.",
-  "productPrice": 125000,
-  "productComparePrice": 135000,
-  "productStockQuantity": 8,
-  "productImages": [
-    { "url": "https://example.com/pixel-9-pro.jpg", "order": 0 }
-  ],
-  "productSpecifications": [
-    {
-      "productSpecificationKey": "Display",
-      "productSpecificationValue": "6.3 inch LTPO OLED"
-    },
-    {
-      "productSpecificationKey": "Storage",
-      "productSpecificationValue": "256 GB"
-    }
-  ],
-  "featured": true
-}
-```
-
-Order statuses are `Pending`, `Paid`, `Shipped` and `Cancelled`.
-
-## Data model
-
-| Entity         | Notes                                                                 |
-| -------------- | --------------------------------------------------------------------- |
-| `Order`        | Order id, user id, product ids, product list, date, address lines, status |
-| `User`         | Id, name and email only; no password or roles yet                     |
-| `Product`      | Slug, name, brand, category slug, description, decimal price, compare price, stock, images, specs, featured |
-| `ProductImage` | Image URL and display order for a product                             |
-| `ProductSpecification` | Key/value specification owned by a product                    |
-
-The database tables are `Orders`, `Products`, `ProductImage`, `ProductSpecification`
-and `User`.
-
-## Testing and quality checks
-
-Frontend:
-
-```powershell
-cd frontend
-npm test          # Vitest, one run
-npm run lint      # ESLint
-npm run typecheck # next typegen + tsc --noEmit
-npm run build     # production build
-```
-
-Backend:
-
-```powershell
-dotnet build backend/electro-api.slnx
-dotnet test backend/electro-api.slnx
-```
-
-The frontend tests cover cart totals (including the free-delivery boundary), catalog
-filtering and sorting, money formatting, and the API adapters. The backend test
-projects are currently scaffolds with placeholder tests.
-
-## Deployment
-
-Two GitHub Actions workflows deploy to IIS through Web Deploy (MonsterASP.NET):
-
-- `.github/workflows/publish-backend.yml` runs on every push, publishes
-  `electroapi.api` with the .NET 10 SDK and deploys it.
-- `.github/workflows/publish-frontend.yml` runs on pushes that touch `frontend/**` or
-  the workflow itself. It builds Next.js in standalone mode, assembles the deployment
-  package and generates an IIS `web.config` using the HttpPlatformHandler.
-
-Required repository secrets:
-
-| Workflow | Secrets                                                                 |
-| -------- | ----------------------------------------------------------------------- |
-| Backend  | `BACK_WEBSITE_NAME`, `BACK_SERVER_COMPUTER_NAME`, `BACK_SERVER_USERNAME`, `BACK_SERVER_PASSWORD` |
-| Frontend | `FRONT_WEBSITE_NAME`, `FRONT_SERVER_COMPUTER_NAME`, `FRONT_SERVER_USERNAME`, `FRONT_SERVER_PASSWORD` |
-
-Optional repository variables for the frontend build: `NEXT_PUBLIC_API_BASE_URL` and
-`NEXT_PUBLIC_USE_MOCK_DATA` (defaults to `true`).
-
-## Project status
-
-Working:
-
-- Storefront UI with a switchable mock/API catalog, filtering, cart drawer and totals.
-- Product list/create API with images and specifications.
-- Order list/create/update/status API.
-- MySQL schema and migrations.
-- GitHub Actions deployment workflows for both halves.
-
-Next steps:
-
-- **Add catalog endpoints by slug and category.** The API currently supports only
-  list-all and create; the frontend resolves slugs and filters in memory.
-- **Include images and specifications in the product query.** `GetAllProductsAsync`
-  currently returns both navigation lists empty.
-- **Add CORS if browser-side API calls are introduced.** Catalog reads happen
-  server-side today, so they are unaffected.
-- **Build checkout.** There is no checkout page, order confirmation or order history;
-  the cart lives only in the browser.
-- **Add accounts.** `User` has no password or roles, and there is no auth endpoint.
-- **Raise test coverage.** Replace the placeholder backend tests and add component
-  tests.
-- **Remove the development connection string** from `appsettings.json` and rotate any
-  credentials that have been committed.
+Previously committed database/publish-profile credentials were removed from current
+source. **Rotate exposed credentials and audit history, remotes, PRs/forks, artifacts,
+caches and saved hosting credentials.** Deleting source does not revoke credentials
+or erase historical exposure. Do not rewrite Git history without separate approval.
 
 ## License
 
-No license has been declared for this repository.
+No license has been declared for this repository. Oracle Connector/NET is
+`GPL-2.0-only WITH Universal-FOSS-exception-1.0`, not Pomelo's licensing. An operator
+must confirm deployment/distribution licensing suitability or a commercial license
+before release; technical compatibility is not a legal conclusion.

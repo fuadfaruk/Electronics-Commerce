@@ -1,5 +1,6 @@
 import { GUID_PATTERN } from "@/lib/api/decoders";
 import { ApiRequestError } from "@/lib/api/errors";
+import { withStorageLock } from "@/lib/storage-lock";
 import type { OwnerKind, PlaceOrderRequest, QuoteItem } from "@/types/api";
 
 export const ATTEMPT_STORAGE_KEY = "electro.checkout.attempt.v1.live";
@@ -17,9 +18,10 @@ export interface AttemptMemory {
   payload: PlaceOrderRequest;
   ownerKind: OwnerKind;
   accountId?: string;
+  unsubmitted?: boolean;
 }
 
-const requests = new Map<string, AttemptMemory>();
+let currentAttempt: { reference: AttemptReference; request?: AttemptMemory } | null = null;
 
 export function itemSignature(items: QuoteItem[]): string {
   return JSON.stringify(items.map((l) => ({ productId: l.productId.toLowerCase(), quantity: l.quantity }))
@@ -69,27 +71,38 @@ export function parseAttempt(raw: string | null): AttemptReference | null {
 export function readAttempt(): { reference: AttemptReference | null; unavailable: boolean; invalid: boolean } {
   try {
     const raw = window.localStorage.getItem(ATTEMPT_STORAGE_KEY);
-    const reference = parseAttempt(raw);
-    return { reference, unavailable: false, invalid: Boolean(raw && !reference) };
-  } catch { return { reference: null, unavailable: true, invalid: false }; }
+    const stored = parseAttempt(raw);
+    if (!currentAttempt && stored) currentAttempt = { reference: stored };
+    return { reference: currentAttempt?.reference ?? null, unavailable: false, invalid: Boolean(raw && !stored) };
+  } catch { return { reference: currentAttempt?.reference ?? null, unavailable: true, invalid: false }; }
 }
 
 export function saveAttempt(reference: AttemptReference): boolean {
-  try { window.localStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(reference)); return true; }
+  if (currentAttempt && currentAttempt.reference.idempotencyKey !== reference.idempotencyKey) throw new ApiRequestError({ status: 409, code: "ATTEMPT_PENDING" });
+  currentAttempt ??= { reference };
+  try {
+    const raw = window.localStorage.getItem(ATTEMPT_STORAGE_KEY);
+    if (raw && parseAttempt(raw)?.idempotencyKey !== reference.idempotencyKey) return false;
+    window.localStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(reference));
+    return true;
+  }
   catch { return false; }
 }
 
 export function rememberAttempt(reference: AttemptReference, request: AttemptMemory): void {
-  requests.set(reference.idempotencyKey, request);
+  if (currentAttempt && currentAttempt.reference.idempotencyKey !== reference.idempotencyKey) throw new ApiRequestError({ status: 409, code: "ATTEMPT_PENDING" });
+  currentAttempt = { reference, request };
 }
 
 export function attemptMemory(reference: AttemptReference): AttemptMemory | undefined {
-  return requests.get(reference.idempotencyKey);
+  return currentAttempt?.reference.idempotencyKey === reference.idempotencyKey ? currentAttempt.request : undefined;
 }
 
-export function clearAttempt(reference: AttemptReference): void {
-  requests.delete(reference.idempotencyKey);
-  try {
-    if (parseAttempt(window.localStorage.getItem(ATTEMPT_STORAGE_KEY))?.idempotencyKey === reference.idempotencyKey) window.localStorage.removeItem(ATTEMPT_STORAGE_KEY);
-  } catch { /* No credentials or contact data are persisted. */ }
+export async function clearAttempt(reference: AttemptReference): Promise<void> {
+  await withStorageLock(ATTEMPT_STORAGE_KEY, (shared) => {
+    try {
+      if (shared && parseAttempt(window.localStorage.getItem(ATTEMPT_STORAGE_KEY))?.idempotencyKey === reference.idempotencyKey) window.localStorage.removeItem(ATTEMPT_STORAGE_KEY);
+    } catch { /* No credentials or contact data are persisted. */ }
+    if (currentAttempt?.reference.idempotencyKey === reference.idempotencyKey) currentAttempt = null;
+  });
 }

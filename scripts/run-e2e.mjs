@@ -1,79 +1,254 @@
 import { spawn } from "node:child_process";
 import { access, cp } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const frontend = path.join(root, "frontend");
-await access(root);
-await access(path.join(frontend, ".next", "BUILD_ID"));
-const standalone = path.join(frontend, ".next", "standalone");
-await access(standalone);
-await access(path.join(standalone, ".next"));
-await cp(path.join(frontend, "public"), path.join(standalone, "public"), { recursive: true });
-await cp(path.join(frontend, ".next", "static"), path.join(standalone, ".next", "static"), { recursive: true });
-const mysql = process.env.ELECTROMART_TEST_MYSQL;
-if (!mysql || process.env.ELECTROMART_TEST_SMTP !== "1") throw new Error("Explicit isolated MySQL 8.4 and SMTP capture readiness are required for E2E.");
-const database = "electromart_test_" + randomUUID().replaceAll("-", "");
-const connection = mysql.replace(/(?:^|;)\s*(?:database|initial catalog)\s*=[^;]*/gi, "") + ";Database=" + database + ";";
-if (!/(?:server|host)\s*=\s*(?:localhost|127\.0\.0\.1|mysql)\s*;/i.test(connection)) throw new Error("E2E refuses nonlocal MySQL servers.");
-const tls = Boolean(process.env.E2E_TLS_CERT && process.env.E2E_TLS_KEY);
-const origin = tls ? "https://localhost:3443" : "http://localhost:3000";
-const api = tls ? "https://localhost:7220" : "http://localhost:5249";
-const keyPath = path.join(os.tmpdir(), "kilo", "electromart_e2e_keys_" + database);
-const env = {
-  ...process.env,
-  ASPNETCORE_ENVIRONMENT: "Development",
-  ConnectionStrings__DefaultConnection: connection,
-  Storefront__Origin: origin,
-  Security__KeyPath: keyPath,
-  Security__DevelopmentHttps: String(tls),
-  Mail__Host: "127.0.0.1", Mail__Port: "1025", Mail__EnableSsl: "false", Mail__Sender: "development@example.com",
-  Logging__LogLevel__Default: "Warning", Logging__LogLevel__Microsoft: "Warning",
-  STOREFRONT_MODE: "live", STOREFRONT_URL: origin, API_BASE_URL: api,
-  NODE_USE_SYSTEM_CA: "1",
-  NODE_OPTIONS: [process.env.NODE_OPTIONS, tls ? `--require="${path.join(root, "scripts", "e2e-ca.cjs").replaceAll("\\", "/")}"` : ""].filter(Boolean).join(" "),
-  E2E_BASE_URL: origin,
-  PORT: "3000", HOSTNAME: "127.0.0.1",
-  Bootstrap__Email: "operator@example.com", Bootstrap__Password: "E2eOperator1!",
-};
-const processes = [];
-const done = (child) => new Promise((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
-function run(command, args, workdir = root) {
-  const child = spawn(command, args, { cwd: workdir, env, stdio: "inherit", windowsHide: true });
-  processes.push(child);
-  child.on("error", () => console.error("An E2E subprocess could not start."));
-  return child;
-}
-async function once(command, args, workdir) { const code = await done(run(command, args, workdir)); if (code) throw new Error("E2E prerequisite command failed."); }
-async function ready(url) {
-  let failure = "unknown";
-  for (let attempt = 0; attempt < 120; attempt++) {
-    try { const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); if (response.ok) return; failure = "HTTP " + response.status; } catch (error) { failure = error.cause?.code ?? error.name; }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+class E2eError extends Error {}
+
+export async function assertPortsAvailable(ports = [3000, 3443, 5249, 7220]) {
+  const reservations = [];
+  try {
+    for (const port of ports) {
+      for (const host of ["127.0.0.1", "::1"]) {
+        await new Promise((resolve, reject) => {
+          const socket = createConnection({ port, host });
+          const timer = setTimeout(() => {
+            socket.destroy();
+            reject(new E2eError("E2E local port checks timed out."));
+          }, 2000);
+          socket.once("connect", () => {
+            clearTimeout(timer);
+            socket.destroy();
+            reject(new E2eError("E2E requires unused local service ports; stop existing listeners first."));
+          });
+          socket.once("error", (error) => {
+            clearTimeout(timer);
+            socket.destroy();
+            if (error.code === "ECONNREFUSED" || (host === "::1" && ["EAFNOSUPPORT", "EADDRNOTAVAIL", "ENETUNREACH"].includes(error.code))) resolve();
+            else reject(new E2eError("E2E local port availability could not be verified."));
+          });
+        });
+        const server = createServer((socket) => socket.destroy());
+        reservations.push(server);
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new E2eError("E2E local port checks timed out.")), 2000);
+          server.once("listening", () => { clearTimeout(timer); resolve(); });
+          server.once("error", (error) => {
+            clearTimeout(timer);
+            if (host === "::1" && ["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(error.code)) resolve();
+            else reject(new E2eError("E2E requires unused local service ports; stop existing listeners first."));
+          });
+          server.listen({ port, host, exclusive: true });
+        });
+      }
+    }
+  } finally {
+    await Promise.all(reservations.map((server) => new Promise((resolve) => server.close(resolve))));
   }
-  throw new Error("Local E2E service did not become ready (" + failure + ").");
 }
-let exitCode = 1;
-try {
-  await once("dotnet", ["run", "--project", "backend/src/ElectroApi.Api", "--no-build", "--no-launch-profile", "--", "--migrate-dev", "--seed-dev", "--bootstrap-admin"]);
-  run("dotnet", ["run", "--project", "backend/src/ElectroApi.Api", "--no-build", "--no-launch-profile", "--urls", tls ? "http://localhost:5249;https://localhost:7220" : "http://localhost:5249"]);
-  await ready("http://localhost:5249/health/database");
-  // CI validates the same production output; no dev server or browser-only API fixture substitutes.
-  run(process.execPath, ["server.js"], standalone);
-  await ready("http://localhost:3000/products");
-  if (tls) { run(process.execPath, ["scripts/tls-proxy.mjs"]); await ready(origin + "/products"); }
-  const playwright = run(process.execPath, ["node_modules/@playwright/test/cli.js", "test", ...process.argv.slice(2)], frontend);
-  exitCode = await done(playwright);
-} finally {
-  for (const child of processes.reverse()) {
-    if (child.exitCode !== null || child.killed) continue;
-    if (process.platform === "win32") {
-      await new Promise((resolve) => { const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }); killer.once("exit", resolve); killer.once("error", resolve); });
-    } else child.kill("SIGTERM");
+
+export function createE2eRunner(env = process.env) {
+  const processes = [];
+  const controller = new AbortController();
+  let stopping = false;
+  function bounded(operation, signal, message) {
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(new E2eError(message));
+      if (signal.aborted) { abort(); return; }
+      signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve(operation).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
   }
-  console.log("E2E used an isolated electromart_test_* schema; no production data was modified.");
+  function scope(timeoutMs) {
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), timeoutMs);
+    return { signal: AbortSignal.any([controller.signal, deadline.signal]), dispose: () => clearTimeout(timer) };
+  }
+  function live(entry) {
+    if (controller.signal.aborted || entry.finished || entry.child.exitCode !== null || entry.child.signalCode !== null) {
+      throw new E2eError("An owned E2E service stopped or could not start.");
+    }
+  }
+  function run(command, args, { cwd = root, readyPattern, service = false, inheritOutput = false } = {}) {
+    let child;
+    try {
+      child = spawn(command, args, { cwd, env, stdio: inheritOutput ? "inherit" : ["ignore", "pipe", "pipe"],
+        windowsHide: true, detached: process.platform !== "win32" });
+    } catch { throw new E2eError("An E2E subprocess could not start."); }
+    const entry = { child, finished: false, ready: false };
+    entry.done = new Promise((resolve) => {
+      const settle = (code) => {
+        if (entry.finished) return;
+        entry.finished = true;
+        if (process.platform !== "win32" && child.pid) {
+          try { process.kill(-child.pid, "SIGKILL"); } catch { }
+        }
+        if (service && !stopping) controller.abort();
+        resolve(code);
+      };
+      child.once("error", () => settle(1));
+      child.once("exit", (code) => settle(code ?? 1));
+    });
+    // Drain but never relay service output: connection failures may include sensitive settings.
+    let output = "";
+    child.stdout?.on("data", (chunk) => {
+      if (readyPattern && !entry.ready) {
+        output = (output + chunk.toString()).slice(-8192);
+        entry.ready = readyPattern.test(output);
+        if (entry.ready) output = "";
+      }
+    });
+    child.stderr?.resume();
+    processes.push(entry);
+    return entry;
+  }
+  async function wait(entry, timeoutMs = 300000) {
+    const deadline = scope(timeoutMs);
+    try {
+      const code = await bounded(entry.done, deadline.signal, "E2E command timed out, was interrupted, or lost an owned service.");
+      if (code !== 0) throw new E2eError("An E2E subprocess failed; its potentially sensitive output was suppressed.");
+      return code;
+    } finally { deadline.dispose(); }
+  }
+  async function ready(entry, url, { timeoutMs = 60000, pollMs = 100, fetchService = fetch } = {}) {
+    const deadline = scope(timeoutMs);
+    try {
+      while (true) {
+        live(entry);
+        let ok = false;
+        if (entry.ready) {
+          const request = AbortSignal.any([deadline.signal, AbortSignal.timeout(2000)]);
+          try {
+            const response = await bounded(fetchService(url, { signal: request, redirect: "error" }), request, "Local E2E readiness timed out.");
+            ok = response.ok;
+            response.body?.cancel().catch(() => {});
+          } catch {
+            if (deadline.signal.aborted) throw new E2eError("Local E2E readiness timed out or lost an owned service.");
+          }
+          live(entry);
+          if (ok) return;
+        }
+        await bounded(delay(pollMs, undefined, { signal: deadline.signal }), deadline.signal, "Local E2E readiness timed out or lost an owned service.");
+      }
+    } finally { deadline.dispose(); }
+  }
+  async function cleanup() {
+    stopping = true;
+    controller.abort();
+    const stopped = await Promise.all([...processes].reverse().map(async (entry) => {
+      if (entry.finished || !entry.child.pid) return true;
+      const settle = async (promise, milliseconds) => {
+        let timer;
+        try { return await Promise.race([promise.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), milliseconds); })]); }
+        finally { clearTimeout(timer); }
+      };
+      if (process.platform === "win32") {
+        if (!entry.finished) {
+          let killer;
+          try {
+            killer = spawn("taskkill", ["/PID", String(entry.child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+            const done = new Promise((resolve) => { killer.once("exit", resolve); killer.once("error", resolve); });
+            if (!await settle(done, 3000)) killer.kill();
+          } catch { /* Direct-process termination below is the bounded fallback. */ }
+          if (!entry.finished) entry.child.kill("SIGKILL");
+        }
+      } else {
+        try { process.kill(-entry.child.pid, "SIGTERM"); } catch { }
+        if (!entry.finished) await settle(entry.done, 1000);
+        // Kill the owned process group even if its leader exited, so descendants cannot leak.
+        try { process.kill(-entry.child.pid, "SIGKILL"); } catch { }
+      }
+      const complete = entry.finished || await settle(entry.done, 2000);
+      if (!complete) {
+        entry.child.stdout?.destroy();
+        entry.child.stderr?.destroy();
+        entry.child.unref();
+      }
+      return complete;
+    }));
+    if (stopped.includes(false)) throw new E2eError("An owned E2E process could not be stopped; verify local process state.");
+  }
+  return { run, wait, ready, cleanup, cancel: () => controller.abort() };
 }
-process.exitCode = exitCode;
+
+async function main() {
+  const frontend = path.join(root, "frontend");
+  const project = path.join(root, "backend", "src", "ElectroApi.Api");
+  const assembly = path.join(project, "bin", "Debug", "net10.0", "ElectroApi.Api.dll");
+  const standalone = path.join(frontend, ".next", "standalone");
+  let runner;
+  const interrupt = () => runner?.cancel();
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
+  try {
+    const mysql = process.env.ELECTROMART_TEST_MYSQL;
+    if (!mysql || process.env.ELECTROMART_TEST_SMTP !== "1") throw new E2eError("Explicit isolated MySQL 8.4 and SMTP capture readiness are required for E2E.");
+    const database = "electromart_test_" + randomUUID().replaceAll("-", "");
+    const connection = mysql.replace(/(?:^|;)\s*(?:database|initial catalog)\s*=[^;]*/gi, "") + ";Database=" + database + ";";
+    if (!/(?:server|host)\s*=\s*(?:localhost|127\.0\.0\.1|mysql)\s*;/i.test(connection)) throw new E2eError("E2E refuses nonlocal MySQL servers.");
+    if (Boolean(process.env.E2E_TLS_CERT) !== Boolean(process.env.E2E_TLS_KEY)) throw new E2eError("Local E2E TLS requires both certificate and key.");
+    const tls = Boolean(process.env.E2E_TLS_CERT);
+    const origin = tls ? "https://localhost:3443" : "http://localhost:3000";
+    const api = tls ? "https://localhost:7220" : "http://localhost:5249";
+    const env = {
+      ...process.env,
+      ASPNETCORE_ENVIRONMENT: "Development", DOTNET_ENVIRONMENT: "Development", NODE_ENV: "production",
+      ConnectionStrings__DefaultConnection: connection,
+      Storefront__Origin: origin,
+      Security__KeyPath: path.join(os.tmpdir(), "kilo", "electromart_e2e_keys_" + database),
+      Security__DevelopmentHttps: String(tls), Commerce__CheckoutEnabled: "true",
+      Mail__Host: "127.0.0.1", Mail__Port: "1025", Mail__EnableSsl: "false", Mail__Sender: "development@example.com",
+      Logging__LogLevel__Default: "Warning", Logging__LogLevel__Microsoft: "Warning",
+      "Logging__LogLevel__Microsoft.Hosting.Lifetime": "Information",
+      STOREFRONT_MODE: "live", STOREFRONT_URL: origin, API_BASE_URL: api,
+      NODE_USE_SYSTEM_CA: "1",
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, tls ? `--require="${path.join(root, "scripts", "e2e-ca.cjs").replaceAll("\\", "/")}"` : ""].filter(Boolean).join(" "),
+      E2E_BASE_URL: origin, E2E_TLS_PORT: "3443", E2E_HTTP_PORT: "3000",
+      PORT: "3000", HOSTNAME: "127.0.0.1",
+      Bootstrap__Email: "operator@example.com", Bootstrap__Password: "E2eOperator1!",
+    };
+    runner = createE2eRunner(env);
+    await access(root);
+    await access(assembly);
+    await access(path.join(frontend, ".next", "BUILD_ID"));
+    await access(path.join(standalone, "server.js"));
+    await access(path.join(standalone, ".next"));
+    await assertPortsAvailable();
+    await cp(path.join(frontend, "public"), path.join(standalone, "public"), { recursive: true });
+    await cp(path.join(frontend, ".next", "static"), path.join(standalone, ".next", "static"), { recursive: true });
+    // Launch the existing Debug assembly directly, without build commands or an orphanable dotnet-run wrapper.
+    await runner.wait(runner.run("dotnet", [assembly, "--migrate-dev", "--seed-dev", "--bootstrap-admin"], { cwd: project }));
+    await assertPortsAvailable();
+    const backend = runner.run("dotnet", [assembly, "--urls", tls ? "http://localhost:5249;https://localhost:7220" : "http://localhost:5249"], {
+      cwd: project, service: true, readyPattern: /Now listening on:\s+http:\/\/localhost:5249/,
+    });
+    await runner.ready(backend, "http://127.0.0.1:5249/health/database");
+    if (tls) await runner.ready(backend, api + "/health/database");
+    // CI validates the actual production output, never a dev server or browser-only API fixture.
+    const storefront = runner.run(process.execPath, ["server.js"], { cwd: standalone, service: true, readyPattern: /Ready in\s/ });
+    await runner.ready(storefront, "http://127.0.0.1:3000/products");
+    if (tls) {
+      const proxy = runner.run(process.execPath, ["scripts/tls-proxy.mjs"], { service: true, readyPattern: /Local TLS proxy ready\./ });
+      await runner.ready(proxy, origin + "/products");
+    }
+    await runner.wait(runner.run(process.execPath, ["node_modules/@playwright/test/cli.js", "test", ...process.argv.slice(2)], {
+      cwd: frontend, inheritOutput: true,
+    }), 1200000);
+    process.exitCode = 0;
+  } catch (error) {
+    console.error(error instanceof E2eError ? error.message : "E2E prerequisites could not be validated; no release validation was accepted.");
+    process.exitCode = 1;
+  } finally {
+    try { await runner?.cleanup(); }
+    catch { console.error("E2E cleanup failed; verify local process state before rerunning."); process.exitCode = 1; }
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

@@ -1,0 +1,105 @@
+name: Protected Paired IIS Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful default-branch push run ID of Commerce CI
+        required: true
+        type: string
+      expected_sha:
+        description: Exact 40-character commit SHA recorded in both tested artifacts
+        required: true
+        type: string
+      ack_migrations:
+        description: SQL reviewed, backup/restore rehearsed, operator applied required migrations and verified schema; no workflow migrations
+        required: true
+        type: boolean
+        default: false
+      ack_maintenance:
+        description: External maintenance is active; both pools may stop; failed rollout stays offline for operator restore and post-rollout smoke checks
+        required: true
+        type: boolean
+        default: false
+      ack_license_hosting:
+        description: Oracle license and IIS .NET 10/Node 24 HttpPlatform, MySQL 8.4, SMTP, trusted TLS/proxies, persistent keys and permissions verified
+        required: true
+        type: boolean
+        default: false
+      ack_credentials:
+        description: Exposed credentials rotated and production configuration/keys provisioned outside source, artifacts and deployment directories
+        required: true
+        type: boolean
+        default: false
+      ack_security:
+        description: Runtime, full npm and NuGet reports reviewed and zero-advisory gates passed; this NEVER bypasses failing CI
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: commerce-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify Passing Paired Release
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Read-Only Release Preflight
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.run_id }}
+          RELEASE_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_ACK_MIGRATIONS: ${{ inputs.ack_migrations }}
+          RELEASE_ACK_MAINTENANCE: ${{ inputs.ack_maintenance }}
+          RELEASE_ACK_LICENSE_HOSTING: ${{ inputs.ack_license_hosting }}
+          RELEASE_ACK_CREDENTIALS: ${{ inputs.ack_credentials }}
+          RELEASE_ACK_SECURITY: ${{ inputs.ack_security }}
+        run: |
+          if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) { throw "Release download parent is missing." }
+          ./scripts/promote-iis.ps1 -ValidateOnly -RunId $env:RELEASE_RUN_ID -ExpectedSha $env:RELEASE_EXPECTED_SHA -DownloadRoot (Join-Path $env:RUNNER_TEMP "verified-iis-release")
+
+  promote:
+    name: Operator-Approved Coordinated Maintenance Rollout
+    needs: verify
+    runs-on: windows-2025
+    timeout-minutes: 35
+    # Required reviewers and default-branch restrictions must be provisioned by the operator.
+    # Declaring an environment here does not configure or prove those protections.
+    environment: production
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Reverify Artifacts And Coordinate Both Pools
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.run_id }}
+          RELEASE_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_ACK_MIGRATIONS: ${{ inputs.ack_migrations }}
+          RELEASE_ACK_MAINTENANCE: ${{ inputs.ack_maintenance }}
+          RELEASE_ACK_LICENSE_HOSTING: ${{ inputs.ack_license_hosting }}
+          RELEASE_ACK_CREDENTIALS: ${{ inputs.ack_credentials }}
+          RELEASE_ACK_SECURITY: ${{ inputs.ack_security }}
+          BACK_WEBSITE_NAME: ${{ secrets.BACK_WEBSITE_NAME }}
+          BACK_SERVER_COMPUTER_NAME: ${{ secrets.BACK_SERVER_COMPUTER_NAME }}
+          BACK_SERVER_USERNAME: ${{ secrets.BACK_SERVER_USERNAME }}
+          BACK_SERVER_PASSWORD: ${{ secrets.BACK_SERVER_PASSWORD }}
+          FRONT_WEBSITE_NAME: ${{ secrets.FRONT_WEBSITE_NAME }}
+          FRONT_SERVER_COMPUTER_NAME: ${{ secrets.FRONT_SERVER_COMPUTER_NAME }}
+          FRONT_SERVER_USERNAME: ${{ secrets.FRONT_SERVER_USERNAME }}
+          FRONT_SERVER_PASSWORD: ${{ secrets.FRONT_SERVER_PASSWORD }}
+        run: |
+          if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) { throw "Release download parent is missing." }
+          ./scripts/promote-iis.ps1 -RunId $env:RELEASE_RUN_ID -ExpectedSha $env:RELEASE_EXPECTED_SHA -DownloadRoot (Join-Path $env:RUNNER_TEMP "protected-iis-release")

@@ -1,0 +1,193 @@
+name: Commerce CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commerce-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24.17.0"
+  DOTNET_VERSION: "10.0.401"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  CI: "true"
+
+jobs:
+  checks:
+    name: Linux Build, Test And Security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          # Disposable service credentials only. Never use these outside local CI.
+          MYSQL_ROOT_PASSWORD: electromart-local-ci-only
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --password=electromart-local-ci-only --silent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      mailpit:
+        image: axllent/mailpit:v1.29.0
+        ports:
+          - 1025:1025
+          - 8025:8025
+        options: >-
+          --health-cmd="/mailpit readyz" --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
+      ELECTROMART_TEST_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=electromart-local-ci-only;SslMode=Disabled;AllowPublicKeyRetrieval=True
+      ELECTROMART_TEST_SMTP: "1"
+      STOREFRONT_MODE: live
+      API_BASE_URL: http://localhost:5249
+      STOREFRONT_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Check Linux Index Paths
+        run: node scripts/check-case-paths.mjs
+      - name: Restore Pinned EF CLI
+        run: |
+          test "$(node --version)" = "v24.17.0"
+          test "$(dotnet --version)" = "10.0.401"
+          dotnet tool restore
+          test "$(dotnet ef --version)" = "Entity Framework Core .NET Command-line Tools 10.0.13"
+      - name: Restore Backend With Security Audit
+        run: dotnet restore backend/ElectroApi.slnx -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low -warnaserror:NU1900,NU1901,NU1902,NU1903,NU1904,NU1905
+      - name: Build Backend
+        run: dotnet build backend/ElectroApi.slnx --no-restore
+      - name: Test Backend Against MySQL And SMTP
+        run: dotnet test backend/ElectroApi.slnx --no-build --no-restore --logger "trx" --collect:"XPlat Code Coverage" --results-directory artifacts/backend-tests
+      - name: Install Frontend From Lock
+        working-directory: frontend
+        run: npm ci
+      - name: Test Release Automation Guards
+        run: node --test scripts/release-automation.test.mjs
+      - name: Test Frontend With Coverage And Results
+        working-directory: frontend
+        run: npm run test:coverage
+      - name: Lint Frontend
+        working-directory: frontend
+        run: npm run lint
+      - name: Typecheck Frontend
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Build Live Production Frontend
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Live Production Stack E2E
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Capture NuGet Vulnerability Evidence
+        if: always()
+        run: |
+          test -d artifacts || mkdir artifacts
+          mkdir -p artifacts/security
+          dotnet list backend/ElectroApi.slnx package --vulnerable --include-transitive --format json --no-restore > artifacts/security/nuget-audit.json
+      - name: Gate Runtime And Full Dependency Audits
+        if: always()
+        run: node scripts/audit-gate.mjs
+      - name: Upload Test, Coverage And Security Evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: commerce-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            artifacts/backend-tests/**
+            artifacts/security/**
+            frontend/coverage/**
+            frontend/playwright-report/**
+            frontend/test-results/**
+
+  package:
+    name: Windows Paired IIS Artifacts
+    needs: checks
+    runs-on: windows-2025
+    timeout-minutes: 25
+    env:
+      DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
+      STOREFRONT_MODE: live
+      # Build-time placeholders only; no hosting credentials or production fetches.
+      API_BASE_URL: https://api.build.invalid
+      STOREFRONT_URL: https://storefront.build.invalid
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Verify Pinned Windows Toolchain
+        run: |
+          if ((node --version) -ne "v24.17.0" -or (node -p "process.arch") -ne "x64" -or (dotnet --version) -ne "10.0.401") { throw "Pinned Windows toolchain is required." }
+          dotnet tool restore
+          if ((dotnet ef --version) -ne "Entity Framework Core .NET Command-line Tools 10.0.13") { throw "Pinned EF CLI is required." }
+      - name: Install Windows Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Typecheck Windows Production Configuration
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+        run: npm run typecheck
+      - name: Verify Fail-Closed Frontend Settings
+        working-directory: frontend
+        run: npx --no-install vitest run src/lib/api/config-validation.test.ts
+      - name: Build Windows Native Standalone Frontend
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+        run: npm run build
+      - name: Publish Framework-Dependent Windows API
+        run: dotnet publish backend/src/ElectroApi.Api/ElectroApi.Api.csproj --configuration Release --runtime win-x64 --self-contained false --output artifacts/api-publish -p:UseAppHost=false -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low -warnaserror:NU1900,NU1901,NU1902,NU1903,NU1904,NU1905
+      - name: Download Passing Evidence From This Run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: commerce-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/checked-evidence
+      - name: Package And Verify Both IIS Applications
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath "artifacts" -PathType Container)) { throw "Packaging parent is missing." }
+          ./scripts/package-iis.ps1 -BackendPublish "artifacts/api-publish" -FrontendRoot "frontend" -SecurityRoot "artifacts/checked-evidence/artifacts/security" -Revision $env:GITHUB_SHA -OutputRoot "artifacts/iis-release"
+          ./scripts/package-iis.ps1 -VerifyOnly -Revision $env:GITHUB_SHA -OutputRoot "artifacts/iis-release"
+      - name: Upload Paired Revision And SHA-256 Manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: commerce-iis-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: artifacts/iis-release

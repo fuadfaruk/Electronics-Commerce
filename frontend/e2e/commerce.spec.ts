@@ -41,6 +41,7 @@ async function fillDelivery(page: Page, email: string) {
 async function purchase(page: Page, email: string) {
   await page.goto("/products/sample-usb-c-cable");
   await page.getByRole("button", { name: /add to cart/i }).first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
   await page.goto("/checkout");
   await fillDelivery(page, email);
   await page.getByRole("button", { name: "Check price and availability" }).click();

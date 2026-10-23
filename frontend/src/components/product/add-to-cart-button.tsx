@@ -27,7 +27,8 @@ export function AddToCartButton({
   variant?: ButtonProps["variant"];
   className?: string;
 }) {
-  const { addProduct } = useCart();
+  const { addProduct, hydrated } = useCart();
+  const [pending, setPending] = useState(false);
   const soldOut = product.stock <= 0 || !product.saleEligible;
 
   return (
@@ -36,8 +37,12 @@ export function AddToCartButton({
       fullWidth={fullWidth}
       variant={variant}
       className={className}
-      disabled={soldOut}
-      onClick={() => addProduct(product, quantity)}
+      disabled={soldOut || !hydrated || pending}
+      onClick={async () => {
+        setPending(true);
+        try { await addProduct(product, quantity); }
+        finally { setPending(false); }
+      }}
     >
       <CartIcon className="size-5" />
       {soldOut ? "Unavailable" : "Add to cart"}
@@ -51,7 +56,8 @@ export function AddToCartButton({
  * click — no nested interactive elements.
  */
 export function QuickAddButton({ product }: { product: Product }) {
-  const { addProduct } = useCart();
+  const { addProduct, hydrated } = useCart();
+  const [pending, setPending] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
   const soldOut = product.stock <= 0 || !product.saleEligible;
 
@@ -64,10 +70,11 @@ export function QuickAddButton({ product }: { product: Product }) {
   return (
     <button
       type="button"
-      disabled={soldOut}
-      onClick={() => {
-        addProduct(product, 1);
-        setJustAdded(true);
+      disabled={soldOut || !hydrated || pending}
+      onClick={async () => {
+        setPending(true);
+        try { await addProduct(product, 1); setJustAdded(true); }
+        finally { setPending(false); }
       }}
       aria-label={
         soldOut

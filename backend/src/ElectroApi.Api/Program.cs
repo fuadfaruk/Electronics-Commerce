@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using ElectroApi.Api.Controllers;
 using ElectroApi.Api.ExceptionHandling;
 using ElectroApi.Api.Security;
 using ElectroApi.Core;
@@ -17,6 +18,7 @@ using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.EntityFrameworkCore;
 using MySql.Data.MySqlClient;
 using Scalar.AspNetCore;
@@ -147,6 +149,11 @@ public partial class Program
                 if (context.Request.ContentLength > 65536) throw new CommerceException(400, "invalid_request", "The submitted request is too large.");
                 try { await context.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(context); }
                 catch (AntiforgeryValidationException) { throw new CommerceException(400, "csrf_invalid", "Refresh the security token and try again."); }
+                var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
+                if (context.Request.Method == "POST" && !configuration.GetValue("Commerce:CheckoutEnabled", development) && action is not null &&
+                    ((action.ControllerTypeInfo.AsType() == typeof(CheckoutController) && action.ActionName == nameof(CheckoutController.Quote)) ||
+                     (action.ControllerTypeInfo.AsType() == typeof(OrderController) && action.ActionName == nameof(OrderController.Accept))))
+                    throw new CommerceException(503, "temporarily_unavailable", "Checkout is paused for maintenance. Existing order tracking remains available.");
             }
             await next();
         });
@@ -169,7 +176,9 @@ public partial class Program
         if (fullKeyPath.Equals(contentRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || fullKeyPath.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Data Protection keys must be outside deploy artifacts.");
         if (!development)
         {
-            if (string.IsNullOrWhiteSpace(configuration["AllowedHosts"]) || configuration["AllowedHosts"] == "*") throw new InvalidOperationException("Production AllowedHosts must contain explicit API hosts.");
+            var hosts = configuration["AllowedHosts"]?.Split(';', StringSplitOptions.TrimEntries) ?? [];
+            if (hosts.Length == 0 || hosts.Any(host => string.IsNullOrWhiteSpace(host) || host.Contains('*') || Uri.CheckHostName(host) == UriHostNameType.Unknown))
+                throw new InvalidOperationException("Production AllowedHosts must contain explicit API hosts.");
             if (string.IsNullOrWhiteSpace(configuration["Security:KeyCertificateThumbprint"])) throw new InvalidOperationException("Production requires a certificate-encrypted persistent Data Protection key ring.");
             if (string.IsNullOrWhiteSpace(configuration["Mail:Host"]) || string.IsNullOrWhiteSpace(configuration["Mail:Sender"]) || !configuration.GetValue("Mail:EnableSsl", false)) throw new InvalidOperationException("Production requires configured SMTP sender, host and TLS.");
             var mysql = new MySqlConnectionStringBuilder(connection);
