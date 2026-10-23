@@ -14,6 +14,7 @@ concurrency:
 
 env:
   NODE_VERSION: "24.17.0"
+  NPM_VERSION: "12.0.2"
   DOTNET_VERSION: "10.0.401"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_NOLOGO: "1"
@@ -58,6 +59,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Install Pinned npm
+        run: npm install --global npm@${{ env.NPM_VERSION }}
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
@@ -68,9 +71,10 @@ jobs:
       - name: Restore Pinned EF CLI
         run: |
           test "$(node --version)" = "v24.17.0"
+          test "$(npm --version)" = "$NPM_VERSION"
           test "$(dotnet --version)" = "10.0.401"
           dotnet tool restore
-          test "$(dotnet ef --version)" = "Entity Framework Core .NET Command-line Tools 10.0.13"
+          node scripts/verify-ef-tool.mjs
       - name: Restore Backend With Security Audit
         run: dotnet restore backend/ElectroApi.slnx -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low -warnaserror:NU1900,NU1901,NU1902,NU1903,NU1904,NU1905
       - name: Build Backend
@@ -81,7 +85,7 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Test Release Automation Guards
-        run: node --test scripts/release-automation.test.mjs
+        run: node --test scripts/release-automation.test.mjs scripts/next-eslint-glob.test.mjs
       - name: Test Frontend With Coverage And Results
         working-directory: frontend
         run: npm run test:coverage
@@ -143,6 +147,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Install Pinned npm
+        run: npm install --global npm@${{ env.NPM_VERSION }}
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
@@ -150,12 +156,15 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - name: Verify Pinned Windows Toolchain
         run: |
-          if ((node --version) -ne "v24.17.0" -or (node -p "process.arch") -ne "x64" -or (dotnet --version) -ne "10.0.401") { throw "Pinned Windows toolchain is required." }
+          if ((node --version) -ne "v24.17.0" -or (npm --version) -ne $env:NPM_VERSION -or (node -p "process.arch") -ne "x64" -or (dotnet --version) -ne "10.0.401") { throw "Pinned Windows toolchain is required." }
           dotnet tool restore
-          if ((dotnet ef --version) -ne "Entity Framework Core .NET Command-line Tools 10.0.13") { throw "Pinned EF CLI is required." }
+          if ($LASTEXITCODE -ne 0) { throw "EF CLI restore failed." }
+          node scripts/verify-ef-tool.mjs
       - name: Install Windows Frontend Dependencies
         working-directory: frontend
         run: npm ci
+      - name: Test Windows Next ESLint Adapter
+        run: node --test scripts/next-eslint-glob.test.mjs
       - name: Typecheck Windows Production Configuration
         working-directory: frontend
         env:

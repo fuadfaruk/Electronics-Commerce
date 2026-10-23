@@ -13,6 +13,7 @@ import { captureNugetAudit } from "./capture-nuget-audit.mjs";
 import { findCaseCollisions } from "./check-case-paths.mjs";
 import { assertPortsAvailable, createE2eRunner } from "./run-e2e.mjs";
 import { validateWorkflow } from "./validate-workflows.mjs";
+import { verifyEfTool } from "./verify-ef-tool.mjs";
 
 const yaml = createRequire(new URL("../frontend/package.json", import.meta.url))("js-yaml");
 const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 };
@@ -28,6 +29,66 @@ const projects = ["ElectroApi.Api", "ElectroApi.Core", "ElectroApi.Infrastructur
 const nuget = () => ({
   version: 1, parameters: "--vulnerable --include-transitive", sources: ["https://api.nuget.org/v3/index.json"],
   projects: projects.map((name) => ({ path: `/home/runner/work/Electronics-Commerce/Electronics-Commerce/backend/${name.endsWith(".Tests") ? "tests" : "src"}/${name}/${name}.csproj` })),
+});
+
+test("EF verification accepts pinned single-line, LF and CRLF output with bounded shell-free execution", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../.config/dotnet-tools.json", import.meta.url), "utf8"));
+  const version = manifest.tools["dotnet-ef"].version;
+  const banner = "Entity Framework Core .NET Command-line Tools";
+  for (const stdout of [`${banner} ${version}`, `${banner}\n${version}\n`, `${banner}\r\n${version}\r\n`]) {
+    assert.equal(await verifyEfTool({ run: async (command, args, options) => {
+      assert.equal(command, "dotnet");
+      assert.deepEqual(args, ["ef", "--version"]);
+      assert.equal(options.cwd, fileURLToPath(new URL("../", import.meta.url)));
+      assert.equal(options.shell, false); assert.equal(options.windowsHide, true);
+      assert.equal(options.encoding, "utf8"); assert.equal(options.timeout, 30_000);
+      assert.equal(options.killSignal, "SIGKILL"); assert.equal(options.maxBuffer, 64 * 1024);
+      return { stdout, stderr: "" };
+    } }), version);
+  }
+});
+test("EF verification rejects wrong versions, incomplete output, stderr and unsuccessful commands", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../.config/dotnet-tools.json", import.meta.url), "utf8"));
+  const stdout = `Entity Framework Core .NET Command-line Tools\n${manifest.tools["dotnet-ef"].version}\n`;
+  for (const result of [
+    { stdout: "Entity Framework Core .NET Command-line Tools\n0.0.0\n", stderr: "" },
+    { stdout: "", stderr: "" }, { stdout: `${stdout}private-extra-output`, stderr: "" },
+    { stdout, stderr: "private-warning" }, { stdout }, { stdout: null, stderr: "" },
+  ]) {
+    await assert.rejects(verifyEfTool({ run: async () => result }), (error) => {
+      assert.match(error.message, /Expected EF CLI|incomplete output or stderr/);
+      assert.doesNotMatch(error.message, /private-/);
+      return true;
+    });
+  }
+  for (const code of [1, "ENOENT", "ETIMEDOUT", "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"]) {
+    await assert.rejects(verifyEfTool({ run: async () => {
+      throw Object.assign(new Error("private-subprocess-error"), { code, stdout, stderr: "" });
+    } }), /EF CLI version command failed/);
+  }
+});
+test("both CI jobs verify the restored EF tool without comparing banner layout", async () => {
+  const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
+  for (const jobId of ["checks", "package"]) {
+    const step = workflow.jobs[jobId].steps.find((step) => step.run?.includes("dotnet tool restore"));
+    assert.ok(step);
+    assert.ok(step.run.indexOf("dotnet tool restore") < step.run.indexOf("node scripts/verify-ef-tool.mjs"));
+    assert.doesNotMatch(step.run, /Entity Framework Core|dotnet ef --version/);
+  }
+});
+test("CI installs pinned npm and tests the locked Next adapter on both platforms", async () => {
+  const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../frontend/package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.engines.npm, "12.x");
+  assert.match(workflow.env.NPM_VERSION, /^12\.\d+\.\d+$/);
+  for (const jobId of ["checks", "package"]) {
+    const steps = workflow.jobs[jobId].steps;
+    const npmSetup = steps.findIndex((step) => step.run === "npm install --global npm@${{ env.NPM_VERSION }}");
+    const install = steps.findIndex((step) => step.run === "npm ci");
+    const regression = steps.findIndex((step) => step.run?.startsWith("node --test ") && step.run.includes("scripts/next-eslint-glob.test.mjs"));
+    assert.ok(npmSetup >= 0 && npmSetup < install && install < regression);
+    assert.equal(steps[regression]["continue-on-error"], undefined);
+  }
 });
 
 test("clean npm graph passes and every development finding still blocks release", () => {

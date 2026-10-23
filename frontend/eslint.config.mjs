@@ -5,6 +5,13 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["tooling/next-eslint-glob/index.cjs"],
+    // The pinned Next plugin loads this adapter through CommonJS.
+    rules: {
+      "@typescript-eslint/no-require-imports": ["error", { allow: ["^node:path$", "^tinyglobby$"] }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
