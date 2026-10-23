@@ -44,7 +44,6 @@ jobs:
         options: >-
           --health-cmd="/mailpit readyz" --health-interval=5s --health-timeout=5s --health-retries=30
     env:
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
       ELECTROMART_TEST_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=electromart-local-ci-only;SslMode=Disabled;AllowPublicKeyRetrieval=True
       ELECTROMART_TEST_SMTP: "1"
       STOREFRONT_MODE: live
@@ -60,6 +59,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - name: Check Linux Index Paths
@@ -131,7 +132,6 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     env:
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
       STOREFRONT_MODE: live
       # Build-time placeholders only; no hosting credentials or production fetches.
       API_BASE_URL: https://api.build.invalid
@@ -147,6 +147,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/commerce-dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - name: Verify Pinned Windows Toolchain

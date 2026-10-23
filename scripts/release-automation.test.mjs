@@ -5,12 +5,15 @@ import { execFile } from "node:child_process";
 import { createServer } from "node:net";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import os from "node:os";
 import { evaluateNpmAudit, checkNugetAudit } from "./audit-gate.mjs";
 import { findCaseCollisions } from "./check-case-paths.mjs";
 import { assertPortsAvailable, createE2eRunner } from "./run-e2e.mjs";
+import { validateWorkflow } from "./validate-workflows.mjs";
 
+const yaml = createRequire(new URL("../frontend/package.json", import.meta.url))("js-yaml");
 const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 };
 const clean = () => ({ auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { ...counts } } });
 const finding = () => ({
@@ -66,6 +69,41 @@ test("CI requires actual browser tests, strict audit and framework-dependent Win
   assert.match(workflow, /UseAppHost=false/);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|allowUntrusted/);
   assert.match(workflow, /frontend\/test-results\/\*\*/);
+});
+
+test("both CI jobs resolve the temporary .NET install directory only in their setup step", async () => {
+  const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
+  validateWorkflow(workflow);
+  for (const jobId of ["checks", "package"]) {
+    const job = workflow.jobs[jobId];
+    assert.equal(Object.hasOwn(job.env, "DOTNET_INSTALL_DIR"), false);
+    const setup = job.steps.filter((step) => step.uses?.startsWith("actions/setup-dotnet@"));
+    assert.equal(setup.length, 1);
+    assert.equal(setup[0].env.DOTNET_INSTALL_DIR, "${{ runner.temp }}/commerce-dotnet");
+    assert.equal(setup[0].with["dotnet-version"], "${{ env.DOTNET_VERSION }}");
+    const invalid = structuredClone(workflow);
+    invalid.jobs[jobId].env.DOTNET_INSTALL_DIR = setup[0].env.DOTNET_INSTALL_DIR;
+    assert.throws(() => validateWorkflow(invalid), (error) => {
+      assert.equal(error.message, `jobs.${jobId}.env cannot use the runner context; put runtime settings in step-level env.`);
+      return true;
+    });
+  }
+});
+
+test("job environment validation rejects execution contexts but permits literals and nested properties", () => {
+  const workflow = (value) => ({
+    name: "Context validation fixture", on: "push", permissions: { contents: "read" },
+    jobs: { checks: { "runs-on": "ubuntu-24.04", env: { DIRECTORY: value },
+      steps: [{ run: "echo fixture", env: { DIRECTORY: "${{ runner.temp }}/fixture" } }] } },
+  });
+  for (const value of ["${{ runner['temp'] }}", "${{ RUNNER.temp }}", "${{ toJSON(runner) }}",
+    "${{ format('{0}/fixture', runner.temp) }}", "${{ env.DIRECTORY }}", "${{ job.status }}", "${{ steps.setup.outputs.path }}"]) {
+    assert.throws(() => validateWorkflow(workflow(value)), /cannot use the (runner|env|job|steps) context/);
+  }
+  for (const value of ["runner.temp", "${{ 'runner.temp' }}", "${{ format('it''s runner.temp', github.sha) }}",
+    "${{ needs.runner.outputs.path }}", "${{ vars.DIRECTORY }}", "${{ github.workspace }}/fixture"]) {
+    assert.doesNotThrow(() => validateWorkflow(workflow(value)));
+  }
 });
 
 test("occupied local ports fail closed without stopping the unrelated listener", { timeout: 5000 }, async () => {
