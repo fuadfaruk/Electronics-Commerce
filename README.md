@@ -1,6 +1,6 @@
 # ElectroMart
 
-A phone-first electronics storefront with an ASP.NET Core/MySQL commerce API.
+A electronics gadgets storefront with an ASP.NET Core/MySQL commerce API.
 The MVP supports cash on delivery (COD), verified customer accounts, private guest
 tracking and a protected staff dashboard. There is no online payment integration.
 This is not a production-release approval.
