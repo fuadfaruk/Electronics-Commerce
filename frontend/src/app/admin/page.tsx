@@ -17,7 +17,7 @@ export default async function AdminOverviewPage() {
   if (!pendingOrders.ok) return <AdminAccessNotice failure={pendingOrders} />;
   return (
     <div className="space-y-6">
-      <AdminHeading title="Store operations" description={`Signed in as ${categories.account.name}. Manage the live catalog and COD orders with version-checked, auditable commands.`} />
+      <AdminHeading title="Store operations" description={`Signed in as ${categories.account.name}. Manage the live catalog and orders with version-checked, auditable commands.`} />
       <div className="grid gap-3 sm:grid-cols-3">
         <Link href="/admin/categories" prefetch={false} className="acrylic-module space-y-3 p-4"><GridIcon className="size-6 text-brand-strong" /><p className="text-3xl font-bold">{categories.data.length}</p><h2 className="text-sm font-semibold">Categories</h2><p className="text-xs text-muted-foreground">{categories.data.filter((category) => category.isArchived).length} archived, references preserved</p></Link>
         <Link href="/admin/products" prefetch={false} className="acrylic-module space-y-3 p-4"><SlidersIcon className="size-6 text-brand-strong" /><p className="text-3xl font-bold">{products.data.totalCount}</p><h2 className="text-sm font-semibold">Product records</h2><p className="text-xs text-muted-foreground">Including archived inventory</p></Link>

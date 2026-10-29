@@ -80,3 +80,21 @@ public sealed class EmailOutbox
     public DateTime? SentAt { get; set; }
     public DateTime? LeaseUntil { get; set; }
 }
+
+public sealed class OwnerOrderNotification
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrderId { get; set; }
+    public required string ProtectedPayload { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime NextAttemptAt { get; set; } = DateTime.UtcNow;
+    public int PartCount { get; set; }
+    public int CurrentPart { get; set; }
+    public int Attempts { get; set; }
+    public Guid? LeaseId { get; set; }
+    public DateTime? LeaseUntil { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public DateTime? FailedAt { get; set; }
+    public long? LastMessageId { get; set; }
+    public string? FailureCode { get; set; }
+}

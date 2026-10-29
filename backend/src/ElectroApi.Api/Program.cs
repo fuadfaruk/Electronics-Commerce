@@ -10,6 +10,7 @@ using ElectroApi.Core.Interfaces;
 using ElectroApi.Infrastructure.Data;
 using ElectroApi.Infrastructure.Identity;
 using ElectroApi.Infrastructure.Mail;
+using ElectroApi.Infrastructure.Notifications;
 using ElectroApi.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
@@ -48,6 +49,12 @@ public partial class Program
         builder.Services.AddScoped<CommerceMail>();
         builder.Services.AddScoped<ICommerceMail>(services => services.GetRequiredService<CommerceMail>());
         builder.Services.AddHostedService<MailOutboxWorker>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton(services => OwnerNotificationSettings.Read(services.GetRequiredService<IConfiguration>()));
+        builder.Services.AddScoped<OwnerOrderNotifications>();
+        builder.Services.AddScoped<IOwnerOrderNotifications>(services => services.GetRequiredService<OwnerOrderNotifications>());
+        builder.Services.AddSingleton<IOwnerNotificationSender>(services => new TelegramOwnerNotificationSender(services.GetRequiredService<OwnerNotificationSettings>(), TelegramOwnerNotificationSender.CreateHandler()));
+        builder.Services.AddHostedService<OwnerNotificationOutboxWorker>();
         builder.Services.AddScoped<CommerceSecurity>();
         builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
         {
@@ -115,6 +122,7 @@ public partial class Program
         var app = builder.Build();
         ValidateConfiguration(app.Configuration, app.Environment);
         var development = app.Environment.IsDevelopment();
+        var ownerNotifications = app.Services.GetRequiredService<OwnerNotificationSettings>();
         var origin = new Uri(app.Configuration["Storefront:Origin"]!);
 
         if (args.Contains("--migrate-dev") || args.Contains("--seed-dev") || args.Contains("--bootstrap-admin"))
@@ -150,7 +158,7 @@ public partial class Program
                 try { await context.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(context); }
                 catch (AntiforgeryValidationException) { throw new CommerceException(400, "csrf_invalid", "Refresh the security token and try again."); }
                 var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
-                if (context.Request.Method == "POST" && !configuration.GetValue("Commerce:CheckoutEnabled", development) && action is not null &&
+                if (context.Request.Method == "POST" && (!configuration.GetValue("Commerce:CheckoutEnabled", development) || !development && !ownerNotifications.Enabled) && action is not null &&
                     ((action.ControllerTypeInfo.AsType() == typeof(CheckoutController) && action.ActionName == nameof(CheckoutController.Quote)) ||
                      (action.ControllerTypeInfo.AsType() == typeof(OrderController) && action.ActionName == nameof(OrderController.Accept))))
                     throw new CommerceException(503, "temporarily_unavailable", "Checkout is paused for maintenance. Existing order tracking remains available.");
@@ -174,6 +182,7 @@ public partial class Program
         var fullKeyPath = Path.GetFullPath(keyPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var contentRoot = Path.GetFullPath(environment.ContentRootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (fullKeyPath.Equals(contentRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || fullKeyPath.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Data Protection keys must be outside deploy artifacts.");
+        OwnerNotificationSettings.Read(configuration);
         if (!development)
         {
             var hosts = configuration["AllowedHosts"]?.Split(';', StringSplitOptions.TrimEntries) ?? [];

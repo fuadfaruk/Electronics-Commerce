@@ -12,11 +12,12 @@ namespace ElectroApi.Integration.Tests;
 public sealed class ProductionConfigurationTests
 {
     private static string Keys => Path.Combine(Path.GetTempPath(), "kilo", "config_test_keys");
-    private static void Reject(IReadOnlyDictionary<string, string?> settings, string message, string environment = "Production")
+    private static InvalidOperationException Reject(IReadOnlyDictionary<string, string?> settings, string message, string environment = "Production")
     {
         using var factory = new CommerceApiFactory("Server=127.0.0.1;Database=electromart_mvp_dev;User ID=sample;Password=not-real;SslMode=Disabled;", Keys, false, environment, settings);
         var exception = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
         Assert.Contains(message, exception.Message);
+        return exception;
     }
     [Fact] public void Missing_connection_is_not_a_runtime_default() => Reject(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = "" }, "nonempty ConnectionStrings");
     [Fact] public void Production_storefront_requires_canonical_https() => Reject(new Dictionary<string, string?> { ["Storefront:Origin"] = "http://shop.example.com" }, "canonical storefront HTTPS");
@@ -37,6 +38,70 @@ public sealed class ProductionConfigurationTests
     [InlineData("127.0.0.1;[::1]")]
     public void Explicit_host_lists_reach_the_next_production_gate(string hosts) => Reject(new Dictionary<string, string?> { ["AllowedHosts"] = hosts, ["Security:KeyCertificateThumbprint"] = "" }, "certificate-encrypted");
     [Fact] public void Production_key_ring_requires_certificate_encryption() => Reject(new Dictionary<string, string?> { ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = "" }, "certificate-encrypted");
+    [Theory]
+    [InlineData("2147483648")]
+    [InlineData("6543210987654321012")]
+    [InlineData("9223372036854775807")]
+    public void Enabled_notifications_validate_synthetic_Int64_chat_without_network_before_the_next_production_gate(string chat)
+    {
+        var exception = Reject(new Dictionary<string, string?>
+        {
+            ["OwnerNotifications:Enabled"] = "true", ["Telegram:BotToken"] = OwnerNotificationTestSettings.BotToken,
+            ["Telegram:OwnerChatId"] = chat, ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = ""
+        }, "certificate-encrypted");
+        Assert.DoesNotContain(OwnerNotificationTestSettings.BotToken, exception.ToString()); Assert.DoesNotContain(chat, exception.Message);
+    }
+    [Theory]
+    [InlineData("1")]
+    [InlineData("yes")]
+    [InlineData("")]
+    public void Notification_switch_must_be_explicit_boolean_without_printing_credentials(string enabled)
+    {
+        var exception = Reject(new Dictionary<string, string?>
+        {
+            ["OwnerNotifications:Enabled"] = enabled, ["Telegram:BotToken"] = OwnerNotificationTestSettings.BotToken,
+            ["Telegram:OwnerChatId"] = "6543210987654321012"
+        }, "must be true or false", "Development");
+        Assert.DoesNotContain(OwnerNotificationTestSettings.BotToken, exception.ToString()); Assert.DoesNotContain("6543210987654321012", exception.ToString());
+    }
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("synthetic-invalid-token")]
+    [InlineData("1234:short")]
+    public void Enabled_notifications_reject_invalid_token_at_startup_without_exposing_it(string? token)
+    {
+        var exception = Reject(new Dictionary<string, string?> { ["OwnerNotifications:Enabled"] = "true", ["Telegram:BotToken"] = token, ["Telegram:OwnerChatId"] = "6543210987654321012" }, "valid protected Telegram__BotToken", "Development");
+        if (!string.IsNullOrEmpty(token)) Assert.DoesNotContain(token, exception.ToString());
+        Assert.DoesNotContain("6543210987654321012", exception.ToString());
+    }
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("0")]
+    [InlineData("-1001234567890")]
+    [InlineData("@synthetic-owner")]
+    [InlineData("1.5")]
+    [InlineData("+1234567890")]
+    [InlineData(" 1234567890")]
+    [InlineData("1234567890 ")]
+    [InlineData("9223372036854775808")]
+    public void Enabled_notifications_reject_nonprivate_or_invalid_chat_at_startup_with_safe_errors(string? chat)
+    {
+        var exception = Reject(new Dictionary<string, string?> { ["OwnerNotifications:Enabled"] = "true", ["Telegram:BotToken"] = OwnerNotificationTestSettings.BotToken, ["Telegram:OwnerChatId"] = chat }, "positive numeric private-chat ID", "Development");
+        Assert.DoesNotContain(OwnerNotificationTestSettings.BotToken, exception.ToString());
+        if (!string.IsNullOrEmpty(chat)) Assert.DoesNotContain(chat, exception.Message);
+    }
+    [Fact]
+    public void Disabled_notifications_ignore_unusable_provider_credentials_and_reach_independent_production_gates()
+    {
+        var exception = Reject(new Dictionary<string, string?>
+        {
+            ["OwnerNotifications:Enabled"] = "false", ["Telegram:BotToken"] = "synthetic-invalid-token", ["Telegram:OwnerChatId"] = "@synthetic-owner",
+            ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = ""
+        }, "certificate-encrypted");
+        Assert.DoesNotContain("synthetic-invalid-token", exception.ToString()); Assert.DoesNotContain("@synthetic-owner", exception.ToString());
+    }
     [Fact]
     public void Keys_cannot_equal_deployment_root_or_be_its_descendants()
     {

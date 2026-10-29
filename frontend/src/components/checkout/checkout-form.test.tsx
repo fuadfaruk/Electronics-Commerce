@@ -8,6 +8,7 @@ import { CartProvider, useCart } from "@/lib/cart/store";
 import { cartStorageKey, emptyCart } from "@/lib/cart/storage";
 import { ATTEMPT_STORAGE_KEY, attemptMemory, clearAttempt, createAttempt, readAttempt } from "@/lib/checkout/attempt";
 import { withStorageLock } from "@/lib/storage-lock";
+import { formatBDT } from "@/lib/money";
 import { account, cartLine, order, orderRequest, quote } from "@/test/fixtures";
 
 const mocks = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
@@ -36,7 +37,30 @@ async function reviewQuote() {
   fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed this quote/ }));
 }
 
-describe("authoritative quote and uncertain COD recovery", () => {
+describe("authoritative quote and uncertain order recovery", () => {
+  it("places an ordinary order with neutral quote acknowledgment, required email and no messenger request or redirect", async () => {
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
+      if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
+      if (url.endsWith("quote")) return Response.json({ ...quote, expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      if (url === "/api/bff/Order") return Response.json(order);
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    await reviewQuote();
+    expect(screen.getByRole("checkbox", { name: /I reviewed this quote/ }).closest("label")?.textContent).toBe(`I reviewed this quote and agree to the items, delivery charge and order total of ${formatBDT(quote.money.total)}.`);
+    expect((screen.getByLabelText("Email") as HTMLInputElement).required).toBe(true);
+    expect(screen.getByText(/No payment is taken online\. We will contact you to confirm the order and payment\./)).toBeTruthy();
+    expect(screen.getByText("Quoted total")).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/\bCOD\b|cash on delivery|Telegram|WhatsApp/i);
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(`/orders/${order.id}`));
+    const accepted = fetch.mock.calls.filter(([url]) => url === "/api/bff/Order");
+    expect(accepted).toHaveLength(1);
+    expect(JSON.parse(accepted[0][1]!.body as string)).toEqual(orderRequest);
+    expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/bff/"))).toBe(true);
+    expect(mocks.replace.mock.calls).toEqual([[`/orders/${order.id}`]]);
+  });
   it("requires quote acknowledgment, preserves only a safe attempt after lost response, and recovers receipt without a second Order POST", async () => {
     const fetch = vi.fn().mockImplementation(async (url: string) => {
       if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
@@ -49,8 +73,8 @@ describe("authoritative quote and uncertain COD recovery", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Check price and availability" }) as HTMLButtonElement).disabled).toBe(false));
     fillContact(); fireEvent.click(screen.getByRole("button", { name: "Check price and availability" }));
     const acknowledgment = await screen.findByRole("checkbox", { name: /I reviewed this quote/ });
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(acknowledgment); fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(acknowledgment); fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByRole("button", { name: "Check for receipt" });
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(1));
     const persisted = window.localStorage.getItem(ATTEMPT_STORAGE_KEY)!;
@@ -79,17 +103,17 @@ describe("authoritative quote and uncertain COD recovery", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed this quote/ }));
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity" }));
     await screen.findByText("The cart changed. Request a new quote before confirming.");
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Decrease quantity" }));
     await waitFor(() => expect(JSON.parse(window.localStorage.getItem(cartStorageKey("live"))!).lines[0].quantity).toBe(2));
     expect(screen.queryByRole("checkbox", { name: /I reviewed this quote/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Refresh quote" }));
     const freshReview = await screen.findByRole("checkbox", { name: /I reviewed this quote/ }) as HTMLInputElement;
     expect(freshReview.checked).toBe(false);
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(freshReview);
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(false);
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
   });
   it("invalidates quote review when away-and-back quantity updates finish in one render batch", async () => {
@@ -108,7 +132,7 @@ describe("authoritative quote and uncertain COD recovery", () => {
     await act(async () => { release.resolve(); await held; });
     await waitFor(() => expect(JSON.parse(window.localStorage.getItem(cartStorageKey("live"))!).lines[0].quantity).toBe(2));
     expect(screen.queryByRole("checkbox", { name: /I reviewed this quote/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Place COD order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
   });
   it.each(["unsupported", "rejected"])("refuses a new checkout with %s Web Locks without creating or overwriting an attempt", async (mode) => {
@@ -117,7 +141,7 @@ describe("authoritative quote and uncertain COD recovery", () => {
     vi.stubGlobal("navigator", mode === "unsupported" ? {} : { locks: { request: vi.fn().mockRejectedValue(new Error("Denied")) } });
     render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
     await reviewQuote();
-    fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByText(/A new checkout cannot be started safely/);
     expect(readAttempt().reference).toBeNull();
     expect(window.localStorage.getItem(ATTEMPT_STORAGE_KEY)).toBeNull();
@@ -129,7 +153,7 @@ describe("authoritative quote and uncertain COD recovery", () => {
     render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
     await reviewQuote();
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Denied"); });
-    fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByText(/A new checkout cannot be started safely/);
     expect(readAttempt().reference).toBeNull();
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
@@ -149,7 +173,7 @@ describe("authoritative quote and uncertain COD recovery", () => {
       if (key === ATTEMPT_STORAGE_KEY) throw new Error("Quota exceeded");
       setItem.call(this, key, value);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByText(/No order was sent because its recovery reference could not be saved/);
     const reference = readAttempt().reference!;
     expect(reference).not.toBeNull(); expect(attemptMemory(reference)?.unsubmitted).toBe(true);
@@ -183,7 +207,7 @@ describe("authoritative quote and uncertain COD recovery", () => {
     });
     vi.stubGlobal("fetch", fetch);
     const view = render(<CartProvider source="live"><CheckoutForm key="first" initialAccount={null} /></CartProvider>);
-    await reviewQuote(); fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    await reviewQuote(); fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByText(/The checkout is not resolved/);
     const reference = readAttempt().reference!;
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity" }));
@@ -224,14 +248,14 @@ describe("authoritative quote and uncertain COD recovery", () => {
     render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
     await screen.findByRole("button", { name: "Check for receipt" });
     fireEvent.click(screen.getByRole("button", { name: "Check for receipt" }));
-    await screen.findByRole("button", { name: "Replay the original COD attempt" });
+    await screen.findByRole("button", { name: "Replay the original checkout attempt" });
     fillContact();
     fireEvent.change(screen.getByLabelText("Bangladesh mobile number"), { target: { value: "01912345678" } });
-    fireEvent.click(screen.getByRole("button", { name: "Replay the original COD attempt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replay the original checkout attempt" }));
     await screen.findByText(/These details do not match the original attempt/);
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("Bangladesh mobile number"), { target: { value: orderRequest.contact.phone } });
-    fireEvent.click(screen.getByRole("button", { name: "Replay the original COD attempt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replay the original checkout attempt" }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(`/orders/${order.id}`));
     const orders = fetch.mock.calls.filter(([url]) => url === "/api/bff/Order");
     expect(orders).toHaveLength(1);
@@ -245,8 +269,8 @@ describe("authoritative quote and uncertain COD recovery", () => {
     const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
     const held = withStorageLock(ATTEMPT_STORAGE_KEY, async () => { entered.resolve(); await release.promise; });
     await entered.promise;
-    fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
-    fireEvent.click(screen.getByRole("button", { name: "Place COD order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     const other = await createAttempt(orderRequest, quote.lines, "guest");
     window.localStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(other));
     await act(async () => { release.resolve(); await held; });

@@ -46,12 +46,16 @@ async function purchase(page: Page, email: string) {
   await fillDelivery(page, email);
   await page.getByRole("button", { name: "Check price and availability" }).click();
   await page.getByRole("checkbox", { name: /I reviewed this quote/ }).check();
-  await page.getByRole("button", { name: "Place COD order" }).click();
+  await expect(page.getByRole("checkbox", { name: /I reviewed this quote/ })).toHaveAccessibleName(/items, delivery charge and order total/);
+  await page.getByRole("button", { name: "Place order" }).click();
   await expect(page).toHaveURL(/\/orders\/[a-f0-9-]{36}$/);
   return page.url().split("/").at(-1)!;
 }
 
 test("phone-first catalog filters, load-more, drawer keyboard and persisted cart", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Live catalog / private order tracking")).toBeVisible();
+  await expect(page.getByText("Order confirmation with you")).toBeVisible();
   await page.goto("/products");
   await expect(page.getByRole("heading", { name: /products/i }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /load more/i })).toBeVisible();
@@ -61,6 +65,7 @@ test("phone-first catalog filters, load-more, drawer keyboard and persisted cart
   await expect(page.getByRole("link", { name: /Galaxy S24/ }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /MacBook/ })).toHaveCount(0);
   await page.goto("/products/sample-usb-c-cable");
+  await expect(page.getByText("We will contact you to confirm the order and payment. No payment is taken online.")).toBeVisible();
   await page.getByRole("button", { name: /add to cart/i }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -78,12 +83,16 @@ test("phone-first catalog filters, load-more, drawer keyboard and persisted cart
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("guest COD persists private receipt, explicit email claim and password recovery", async ({ page, request, browser }, testInfo) => {
+test("guest order needs no messenger and preserves private receipt, explicit email claim and password recovery", async ({ page, request, browser }, testInfo) => {
+  const providerRequests: string[] = [];
+  page.on("request", (event) => { if (/telegram|whatsapp|(^|\.)t\.me$/i.test(new URL(event.url()).hostname)) providerRequests.push(event.url()); });
   const email = `sample-${testInfo.project.name}-${Date.now()}@example.com`;
   const id = await purchase(page, email);
+  await expect(page.getByText("Order received. We will contact you to confirm the order and payment.")).toBeVisible();
+  await expect(page.locator("main")).not.toContainText(/Telegram|WhatsApp/);
   await page.reload();
   await expect(page.getByText(/Unpaid/).first()).toBeVisible();
-  const privateLink = await mailLink(request, email, "COD order accepted");
+  const privateLink = await mailLink(request, email, "order received");
   const separate = await browser.newContext({ baseURL: testInfo.project.use.baseURL ?? process.env.E2E_BASE_URL });
   const otherPage = await separate.newPage();
   await otherPage.goto(`/orders/${id}`);
@@ -130,6 +139,7 @@ test("guest COD persists private receipt, explicit email claim and password reco
   await login(page, email, "NewSampleCustomer2!");
   await page.goto(`/account/orders/${id}`);
   await expect(page.getByText("Sample USB-C Cable", { exact: false }).first()).toBeVisible();
+  expect(providerRequests).toEqual([]);
 });
 
 test("operator manages categories products stock fulfillment cancellation and full cash collection", async ({ page, browser }, testInfo) => {

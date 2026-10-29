@@ -126,7 +126,7 @@ export default async function ProductPage({
               <div>
                 <dt className="font-medium">Payment</dt>
                 <dd className="text-muted-foreground">
-                  Cash on delivery only.
+                  We will contact you to confirm the order and payment. No payment is taken online.
                 </dd>
               </div>
             </div>

@@ -204,7 +204,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
   if (cart.source === "mock") return <p>Sample browsing only. Checkout is disabled.</p>;
   return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]" aria-busy={busy}>
     <section className="min-w-0 space-y-5">
-      <header className="space-y-2"><p className="bench-strip">Checkout / cash on delivery only</p><h1 className="text-2xl font-semibold">Review and place your order</h1><p className="text-sm text-muted-foreground">A server-issued quote confirms price, delivery and availability. No payment is taken online.</p></header>
+      <header className="space-y-2"><p className="bench-strip">Checkout / order review</p><h1 className="text-2xl font-semibold">Review and place your order</h1><p className="text-sm text-muted-foreground">A server-issued quote confirms price, delivery and availability. No payment is taken online. We will contact you to confirm the order and payment.</p></header>
       {notice || cart.notice ? <p role="status" className="rounded-xl border bg-warning-soft p-3 text-sm">{notice || cart.notice}</p> : null}
       {problem ? <ErrorNotice heading="Checkout needs attention" problem={problem} retryable={false} /> : null}
       {formError ? <p role="alert" className="text-sm text-danger">{formError}</p> : null}
@@ -220,13 +220,13 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
         {receiptMissing && !attemptMemory(attempt) ? <form ref={formRef} onSubmit={replay} className="space-y-4">
           <p className="text-sm">Re-enter the original details exactly. The saved payload hash must match before a replay is sent, using the same quote and key even if the quote expired.</p>
           <ContactFields account={security?.account} />
-          <Button type="submit" disabled={busy || accountBlocked}>Replay the original COD attempt</Button>
+          <Button type="submit" disabled={busy || accountBlocked}>Replay the original checkout attempt</Button>
         </form> : null}
       </section> : cart.lines.length ? <form ref={formRef} onSubmit={confirm} className="space-y-5">
         <fieldset disabled={busy || Boolean(accountBlocked)} className="space-y-4"><legend className="mb-3 text-base font-semibold">Contact and delivery</legend><ContactFields account={security?.account} /></fieldset>
-        <p className="text-xs text-muted-foreground">Details are sent only on confirmation. They are not saved to browser storage.</p>
-        {quote && quoteMatches ? <label className="flex min-h-11 items-start gap-3 rounded-xl border bg-brand-soft p-3 text-sm"><input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-brand" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} /><span>I reviewed this quote and agree to pay {formatBDT(quote.money.total)} in cash on delivery.</span></label> : null}
-        <Button type="submit" size="lg" fullWidth disabled={busy || !quoteMatches || !acknowledged || !security || Boolean(accountBlocked)}>{busy ? "Resolving checkout..." : "Place COD order"}</Button>
+        <p className="text-xs text-muted-foreground">Details are sent only when you place your order. They are not saved to browser storage.</p>
+        {quote && quoteMatches ? <label className="flex min-h-11 items-start gap-3 rounded-xl border bg-brand-soft p-3 text-sm"><input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-brand" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} /><span>I reviewed this quote and agree to the items, delivery charge and order total of {formatBDT(quote.money.total)}.</span></label> : null}
+        <Button type="submit" size="lg" fullWidth disabled={busy || !quoteMatches || !acknowledged || !security || Boolean(accountBlocked)}>{busy ? "Resolving checkout..." : "Place order"}</Button>
       </form> : <div className="space-y-3"><p>Your cart is empty.</p><Link href="/products" className={buttonStyles({ variant: "secondary" })}>Browse products</Link></div>}
     </section>
     <aside className="min-w-0 space-y-4 rounded-2xl border bg-surface p-4">
@@ -237,7 +237,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
         {expired ? <p role="status" className="text-sm text-warning">Quote expired. Request a fresh quote.</p> : null}
         {signature !== quotedItems ? <p role="status" className="text-sm text-warning">The cart changed. Request a new quote before confirming.</p> : null}
         {quote.problems.length ? <ul role="alert" className="space-y-1 text-sm text-danger">{quote.problems.map((p) => <li key={`${p.productId}-${p.code}`}>{p.message}</li>)}</ul> : null}
-        <dl className="space-y-2 text-sm"><div className="flex justify-between"><dt>Quoted subtotal</dt><dd>{formatBDT(quote.money.subtotal)}</dd></div><div className="flex justify-between"><dt>Delivery</dt><dd>{formatBDT(quote.money.delivery)}</dd></div><div className="flex justify-between border-t pt-2 font-semibold"><dt>COD total</dt><dd>{formatBDT(quote.money.total)}</dd></div></dl>
+        <dl className="space-y-2 text-sm"><div className="flex justify-between"><dt>Quoted subtotal</dt><dd>{formatBDT(quote.money.subtotal)}</dd></div><div className="flex justify-between"><dt>Delivery</dt><dd>{formatBDT(quote.money.delivery)}</dd></div><div className="flex justify-between border-t pt-2 font-semibold"><dt>Quoted total</dt><dd>{formatBDT(quote.money.total)}</dd></div></dl>
       </div> : <p className="text-sm text-muted-foreground">Estimated total {formatBDT(cart.totals.total)}. A quote is required before confirmation.</p>}
       {!attempt ? <Button variant="secondary" fullWidth disabled={busy || !security || Boolean(accountBlocked) || !cart.lines.length} onClick={requestQuote}>{busy ? "Checking..." : quote ? "Refresh quote" : "Check price and availability"}</Button> : null}
     </aside>

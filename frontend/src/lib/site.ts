@@ -12,4 +12,4 @@ export const SITE_TAGLINE = "Electronics and parts, delivered across Bangladesh"
 export const SITE_SUBTITLE = "Diffused light-bed catalog // rev 2.4";
 
 export const SITE_DESCRIPTION =
-  "Shop smartphones, laptops, PC components, storage, audio and accessories. Cash on delivery only.";
+  "Shop smartphones, laptops, PC components, storage, audio and accessories. We will contact you to confirm the order and payment.";

@@ -29,7 +29,10 @@ internal sealed class CommerceApiFactory(string connectionString, string keyPath
                 ["Mail:EnableSsl"] = "false",
                 ["Logging:LogLevel:Default"] = "Warning",
                 ["Commerce:CheckoutEnabled"] = "true",
-                ["Mail:Sender"] = "development@example.com"
+                ["Mail:Sender"] = "development@example.com",
+                ["OwnerNotifications:Enabled"] = "false",
+                ["Telegram:BotToken"] = "",
+                ["Telegram:OwnerChatId"] = ""
             };
             foreach (var item in overrides ?? new Dictionary<string, string?>()) settings[item.Key] = item.Value;
             configuration.AddInMemoryCollection(settings);

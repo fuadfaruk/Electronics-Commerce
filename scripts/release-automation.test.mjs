@@ -11,7 +11,7 @@ import os from "node:os";
 import { evaluateNpmAudit, checkNugetAudit, readNugetAudit } from "./audit-gate.mjs";
 import { captureNugetAudit } from "./capture-nuget-audit.mjs";
 import { findCaseCollisions } from "./check-case-paths.mjs";
-import { assertPortsAvailable, createE2eRunner } from "./run-e2e.mjs";
+import { assertPortsAvailable, createE2eRunner, disableOwnerNotifications } from "./run-e2e.mjs";
 import { validateWorkflow } from "./validate-workflows.mjs";
 import { verifyEfTool } from "./verify-ef-tool.mjs";
 
@@ -376,6 +376,22 @@ test("occupied local ports fail closed without stopping the unrelated listener",
   } finally { await new Promise((resolve) => listener.close(resolve)); }
   await assertPortsAvailable([port]);
   await assertPortsAvailable([port]);
+});
+
+test("ordinary E2E removes inherited owner-alert secrets and disables real sending regardless of environment key case", () => {
+  const source = {
+    PATH: "sample-tools", ELECTROMART_TEST_MYSQL: "sample-local-connection",
+    OwnerNotifications__Enabled: "true", OWNERNOTIFICATIONS__ENABLED: "true",
+    Telegram__BotToken: "synthetic-secret", TELEGRAM__BOTTOKEN: "synthetic-secret-uppercase",
+    telegram__OwnerChatId: "123456789", Telegram__UnusedSecret: "synthetic-unused-secret",
+  };
+  const safe = disableOwnerNotifications(source);
+  assert.deepEqual(safe, {
+    PATH: "sample-tools", ELECTROMART_TEST_MYSQL: "sample-local-connection",
+    OwnerNotifications__Enabled: "false", Telegram__BotToken: "", Telegram__OwnerChatId: "",
+  });
+  assert.equal(source.OwnerNotifications__Enabled, "true");
+  assert.doesNotMatch(JSON.stringify(safe), /synthetic-secret|123456789/);
 });
 
 test("spawn failures and nonzero subprocess exits settle without exposing diagnostics", { timeout: 6000 }, async (t) => {

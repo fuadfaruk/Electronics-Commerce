@@ -17,6 +17,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\ElectroApi.Core\ElectroApi.Core.csproj" />
+    <ProjectReference Include="..\..\src\ElectroApi.Infrastructure\ElectroApi.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

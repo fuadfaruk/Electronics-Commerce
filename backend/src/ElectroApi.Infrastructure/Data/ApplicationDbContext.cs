@@ -21,6 +21,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<GuestGrant> GuestGrants => Set<GuestGrant>();
     public DbSet<OrderClaim> OrderClaims => Set<OrderClaim>();
     public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();
+    public DbSet<OwnerOrderNotification> OwnerOrderNotifications => Set<OwnerOrderNotification>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
@@ -134,6 +135,15 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<OrderClaim>().HasOne<ApplicationUser>().WithMany().HasForeignKey(c => c.AccountId).OnDelete(DeleteBehavior.Restrict);
         builder.Entity<EmailOutbox>().Property(e => e.ProtectedPayload).HasColumnType("longtext");
         builder.Entity<EmailOutbox>().HasIndex(e => new { e.SentAt, e.NextAttemptAt, e.LeaseUntil });
+        builder.Entity<OwnerOrderNotification>(notification =>
+        {
+            notification.Property(n => n.ProtectedPayload).HasColumnType("longtext");
+            notification.Property(n => n.FailureCode).HasMaxLength(40);
+            notification.HasOne<Order>().WithOne().HasForeignKey<OwnerOrderNotification>(n => n.OrderId).OnDelete(DeleteBehavior.Restrict);
+            notification.HasIndex(n => new { n.CompletedAt, n.FailedAt, n.NextAttemptAt, n.LeaseUntil });
+            notification.HasIndex(n => new { n.CompletedAt, n.FailedAt, n.CreatedAt });
+            notification.ToTable("OwnerOrderNotifications", table => table.HasCheckConstraint("CK_OwnerNotification_Progress", "PartCount > 0 AND CurrentPart >= 0 AND CurrentPart <= PartCount AND Attempts >= 0 AND Attempts <= 10"));
+        });
     }
 
     private static void Money<TOwner>(OwnedNavigationBuilder<TOwner, MoneySnapshot> money) where TOwner : class

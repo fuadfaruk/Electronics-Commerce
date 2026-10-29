@@ -58,7 +58,7 @@ export async function SiteFooter({ mode }: { mode: StorefrontMode }) {
             <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start gap-2.5">
                 <CashIcon className="mt-0.5 size-4 shrink-0 text-brand" />
-                <span>Cash on delivery only</span>
+                <span>We will contact you to confirm the order and payment.</span>
               </li>
               <li className="flex items-start gap-2.5">
                 <TruckIcon className="mt-0.5 size-4 shrink-0 text-brand" />

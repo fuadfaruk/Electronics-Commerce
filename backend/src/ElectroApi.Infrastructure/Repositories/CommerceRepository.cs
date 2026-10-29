@@ -12,7 +12,7 @@ using MySql.Data.MySqlClient;
 
 namespace ElectroApi.Infrastructure.Repositories;
 
-public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail mail) : ICommerceRepository
+public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail mail, IOwnerOrderNotifications ownerNotifications) : ICommerceRepository
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
@@ -90,7 +90,7 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         var id = Guid.NewGuid();
         var order = new Order { Id = id, Number = "EM-" + DateTime.UtcNow.ToString("yyyyMMdd") + "-" + id.ToString("N")[..12].ToUpperInvariant(), QuoteId = quote.Id, AccountId = owner.AccountId, CheckoutOwner = owner.Key, Contact = contact, NormalizedEmail = contact.Email.ToUpperInvariant(), DeliveryAddress = address, Money = money, Notes = notes, Lines = lines.Select((line, index) => new OrderLine { ProductId = line.ProductId, Name = products[line.ProductId].Name, Slug = products[line.ProductId].Slug, UnitPrice = line.UnitPrice, Quantity = line.Quantity, LineTotal = line.UnitPrice * line.Quantity, Position = index }).ToList(), Events = [new OrderEvent { Action = "Accepted", ActorId = owner.AccountId, Version = 1 }] };
         db.Orders.Add(order); receipt.OrderId = order.Id;
-        var body = $"Your COD order {order.Number} was accepted. Total BDT {order.Money.Total:0}. Payment is Unpaid and will be collected at delivery.\n";
+        var body = $"Order received. We will contact you to confirm the order and payment.\nOrder {order.Number}. Accepted total BDT {order.Money.Total:0}. Payment status: Unpaid. No payment has been taken online.\n";
         if (!owner.AccountId.HasValue)
         {
             var capability = NewToken();
@@ -98,7 +98,8 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
             body += "Track this order with the private link below. Do not share it. Open it and choose Unlock order:\n" + mail.Link("/orders/" + id, new Dictionary<string, string> { ["capability"] = capability });
         }
         else body += mail.Link("/account/orders/" + id, new Dictionary<string, string>());
-        db.EmailOutbox.Add(mail.Create(contact.Email, "ElectroMart COD order accepted", body));
+        db.EmailOutbox.Add(mail.Create(contact.Email, "ElectroMart order received", body));
+        if (ownerNotifications.Create(order) is { } notification) db.OwnerOrderNotifications.Add(notification);
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
         return Map(order);
     }

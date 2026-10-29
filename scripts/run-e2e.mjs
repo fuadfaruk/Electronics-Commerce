@@ -10,6 +10,11 @@ import { randomUUID } from "node:crypto";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 class E2eError extends Error {}
 
+export function disableOwnerNotifications(environment = process.env) {
+  const inherited = Object.fromEntries(Object.entries(environment).filter(([key]) => !/^(OwnerNotifications|Telegram)__/i.test(key)));
+  return { ...inherited, OwnerNotifications__Enabled: "false", Telegram__BotToken: "", Telegram__OwnerChatId: "" };
+}
+
 export async function assertPortsAvailable(ports = [3000, 3443, 5249, 7220]) {
   const reservations = [];
   try {
@@ -196,7 +201,7 @@ async function main() {
     const origin = tls ? "https://localhost:3443" : "http://localhost:3000";
     const api = tls ? "https://localhost:7220" : "http://localhost:5249";
     const env = {
-      ...process.env,
+      ...disableOwnerNotifications(),
       ASPNETCORE_ENVIRONMENT: "Development", DOTNET_ENVIRONMENT: "Development", NODE_ENV: "production",
       ConnectionStrings__DefaultConnection: connection,
       Storefront__Origin: origin,

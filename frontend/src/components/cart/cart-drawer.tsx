@@ -87,7 +87,7 @@ function CartFooter({ totals }: { totals: CartTotals }) {
         under {formatBDT(FREE_DELIVERY_THRESHOLD)}.
       </p>
 
-      {source === "live" ? <Link href="/checkout" onClick={closeCart} className={buttonStyles({ size: "lg", fullWidth: true })}>Review COD checkout</Link>
+      {source === "live" ? <Link href="/checkout" onClick={closeCart} className={buttonStyles({ size: "lg", fullWidth: true })}>Review checkout</Link>
         : <button type="button" disabled className={buttonStyles({ size: "lg", fullWidth: true })}>Checkout disabled in sample mode</button>}
 
       <p className="text-center text-xs text-muted-foreground">
@@ -97,7 +97,7 @@ function CartFooter({ totals }: { totals: CartTotals }) {
       <p className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <CashIcon className="size-4" />
-          Cash on delivery
+          Order confirmation with you
         </span>
       </p>
     </div>

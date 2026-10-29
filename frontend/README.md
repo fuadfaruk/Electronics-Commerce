@@ -34,7 +34,9 @@ does not default to mock, and a live failure never falls back to sample data.
 - Portal cart drawer: keyboard trap, background inertness, scroll locking and focus
   restoration. Product images have a local fallback when a remote image fails.
 - `/checkout`: contact/Bangladesh address validation, server quote review and
-  acknowledged COD submission. No online payment is collected.
+  acknowledged order submission. The store contacts the customer to confirm the
+  order and payment; no online payment is collected. Customer messenger accounts
+  are not required, and provider settings/requests never belong in the browser.
 - `/orders/[id]`: immutable private receipt and fulfillment/payment tracking.
 - `/account`: registration, email verification/resend, login/logout, reset,
   paged history, private detail and explicit guest-order claim.

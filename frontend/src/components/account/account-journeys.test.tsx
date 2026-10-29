@@ -6,6 +6,7 @@ import { AuthForm } from "@/components/account/auth-form";
 import { EmailAction } from "@/components/account/email-action";
 import { LogoutButton } from "@/components/account/logout-button";
 import { OrderTracking } from "@/components/orders/order-tracking";
+import { OrderReceipt } from "@/components/orders/order-receipt";
 import { ATTEMPT_STORAGE_KEY } from "@/lib/checkout/attempt";
 import { safeProblem } from "@/lib/api/errors";
 import { account, order, quote } from "@/test/fixtures";
@@ -56,6 +57,10 @@ describe("explicit email actions and private tracking", () => {
     await screen.findByRole("button", { name: "Unlock private order" }); expect(fetch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Unlock private order" }));
     await screen.findByRole("heading", { name: `Order ${order.number}` });
+    expect(screen.getByText("Order received. We will contact you to confirm the order and payment.")).toBeTruthy();
+    expect(screen.getByText("Payment")).toBeTruthy();
+    expect(screen.getByText("Order total")).toBeTruthy();
+    expect(screen.getByText("Unpaid")).toBeTruthy();
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/api/bff/Security/csrf", "/api/bff/Guest/exchange", "/api/bff/Security/csrf", `/api/bff/Order/${order.id}`]);
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ orderId: order.id, capability });
     expect(window.localStorage.length).toBe(0);
@@ -76,6 +81,23 @@ describe("explicit email actions and private tracking", () => {
     fireEvent(window, new HashChangeEvent("hashchange"));
     await waitFor(() => expect((screen.getByRole("button", { name: "Confirm verification" }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false));
     expect(window.location.hash).toBe(""); expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("truthful provider-neutral receipts", () => {
+  it.each(["Confirmed", "Shipped", "Delivered", "Cancelled"] as const)("keeps %s fulfillment without a stale future confirmation promise", (fulfillment) => {
+    const view = render(<OrderReceipt order={{ ...order, fulfillment }} />);
+    expect(screen.getByText(fulfillment)).toBeTruthy();
+    expect(screen.getByText("Unpaid")).toBeTruthy();
+    expect(screen.queryByText("Order received. We will contact you to confirm the order and payment.")).toBeNull();
+    expect(view.container.textContent).not.toMatch(/Telegram|WhatsApp|\bCOD\b|cash on delivery/i);
+  });
+  it("shows actual collected payment after delivery without claiming a new payment arrangement", () => {
+    render(<OrderReceipt order={{ ...order, fulfillment: "Delivered", payment: "Collected" }} />);
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getByText("Collected")).toBeTruthy();
+    expect(screen.queryByText("Order received. We will contact you to confirm the order and payment.")).toBeNull();
+    expect(screen.getByText("Order total")).toBeTruthy();
   });
 });
 

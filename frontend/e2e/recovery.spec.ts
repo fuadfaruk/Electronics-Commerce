@@ -29,7 +29,7 @@ test("accepted order with lost response recovers after reload without a second a
     // Inject only the lost browser response; the real API transaction already committed.
     await route.abort("failed");
   });
-  await page.getByRole("button", { name: "Place COD order" }).click();
+  await page.getByRole("button", { name: "Place order" }).click();
   await expect.poll(() => committed).toBe(true);
   await expect(page.getByRole("status").filter({ hasText: /checkout is not resolved/ })).toBeVisible();
   const unsafeStorage = await page.evaluate(() => Object.values(localStorage).join(" "));
@@ -39,6 +39,7 @@ test("accepted order with lost response recovers after reload without a second a
   await expect(page).toHaveURL(/\/orders\/[a-f0-9-]{36}$/);
   expect(accepts).toBe(1);
   await expect(page.getByText("Unpaid", { exact: true })).toBeVisible();
+  await expect(page.getByText("Order received. We will contact you to confirm the order and payment.")).toBeVisible();
 });
 
 test("session expiration never retries an account quote as a guest", async ({ page }) => {

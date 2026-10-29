@@ -25,21 +25,21 @@ export default async function HomePage() {
       <section className="space-y-4">
         <div className="space-y-2">
           <p className="bench-strip">
-            {mode === "mock" ? "Sample catalog / checkout disabled" : "Live catalog / cash on delivery"}
+            {mode === "mock" ? "Sample catalog / checkout disabled" : "Live catalog / private order tracking"}
           </p>
           <h1 className="text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
             Gadgets and parts, delivered across Bangladesh
           </h1>
           <p className="text-sm text-muted-foreground sm:text-base">
-            Phones, laptops, components and accessories. Cash on delivery, with
-            free delivery from {formatBDT(FREE_DELIVERY_THRESHOLD)}.
+            Phones, laptops, components and accessories, with free delivery from
+            {formatBDT(FREE_DELIVERY_THRESHOLD)}. We will contact you to confirm the order and payment.
           </p>
         </div>
 
         <ul className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           <li className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5">
             <CashIcon className="size-5 shrink-0 text-brand" />
-            Cash on delivery
+            Order confirmation with you
           </li>
           <li className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5">
             <TruckIcon className="size-5 shrink-0 text-brand" />

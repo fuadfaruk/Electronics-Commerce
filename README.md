@@ -1,8 +1,11 @@
 # ElectroMart
 
 A electronics gadgets storefront with an ASP.NET Core/MySQL commerce API.
-The MVP supports cash on delivery (COD), verified customer accounts, private guest
-tracking and a protected staff dashboard. There is no online payment integration.
+The MVP supports manual order/payment confirmation, verified customer accounts,
+private guest tracking and a protected staff dashboard. Customers place ordinary
+orders without a messenger account; the owner receives private backend-only Telegram
+alerts when enabled. Existing cash collection after delivery remains unchanged.
+There is no online payment, advance-payment or refund integration.
 This is not a production-release approval.
 
 ## Toolchain
@@ -119,6 +122,11 @@ request. Logout revokes all current sessions; password reset invalidates old coo
   Unsaved, known-unsubmitted attempts keep their key in tab memory and must persist
   it before retrying. Degraded carts are visibly tab-only and never overwrite shared
   storage. Quantity edits invalidate quote review even when reversed.
+- When owner notifications are enabled, new acceptance atomically queues one
+  separately protected owner alert alongside stock/order/receipt/customer email.
+  Delivery happens after commit and never changes acceptance, stock or payment.
+  Replay and original-key recovery do not enqueue another alert. Customer emails
+  retain private tracking capabilities; those credentials are never forwarded.
 - Fulfillment is `Pending -> Confirmed -> Shipped -> Delivered`; cancellation is
   allowed only before shipment and restores stock once. Payment is separately
   `Unpaid -> Collected`, allowed once after delivery for the full immutable amount.
@@ -153,6 +161,97 @@ SMTP retries use leases, bounded attempts and cancellation; sent/exhausted paylo
 are scrubbed. Failed delivery does not undo an accepted order. Error responses use
 fixed codes/details and correlation IDs, not database/SMTP exceptions or PII.
 
+## Private Owner Alerts
+
+Use a dedicated Telegram bot and the owner's fixed private chat. No WhatsApp
+Business onboarding, payment gateway or customer messenger account is required.
+There are no customer messenger buttons, browser bot requests, inbound webhook,
+runtime `getUpdates` polling, bot commands or public setup/send/status endpoints.
+
+1. Open the official verified BotFather account in Telegram and use `/newbot`.
+   Keep its token in a protected secret store; never paste it into Git, build
+   artifacts, chat, README, browser history, URLs opened in a browser or CLI arguments.
+2. The owner opens the dedicated bot and sends `/start` in a private chat.
+3. Use one authenticated `getUpdates` call to the official Telegram Bot API from a
+   trusted local/server-side tool, reading the token from protected settings or a
+   hidden prompt. Inspect the result locally: verify the owner's identity and
+   `message.chat.type=private`, then take that owner's positive `message.chat.id`.
+   Do not auto-bind the first stranger who messages the bot, use a third-party ID
+   bot, or choose a username, group or channel. Remove captured setup responses.
+4. Configure only the API process using the settings below. Startup validates
+   enabled token syntax and positive signed 64-bit chat IDs without contacting
+   Telegram. The token is not stored in an outbox payload. Each payload captures
+   the configured private chat at acceptance, so later chat changes do not reroute
+   already queued orders.
+
+| API-only setting | Behavior |
+| --- | --- |
+| `OwnerNotifications__Enabled` | Checked-in default `false`; explicitly enable only with approved protected settings. |
+| `Telegram__BotToken` | BotFather token from the protected hosting secret store. |
+| `Telegram__OwnerChatId` | Owner's positive numeric private-chat ID within signed 64-bit range. |
+
+Do not provide these settings to Next.js or use `NEXT_PUBLIC_` variables. Disabled
+Development/CI sending does not enqueue alerts; enabling later never backfills old
+orders. Previously queued payloads still age out while sending is disabled.
+In Production, disabled notifications pause new quotes/acceptance through the
+existing generic maintenance response, even if `Commerce__CheckoutEnabled=true`.
+Browsing, staff access, private tracking and original-attempt reads remain available.
+The independent checkout deployment switch must still remain closed through promotion.
+An outage after configured acceptance instead queues protected retries; the customer
+receives the ordinary private receipt, not provider failure details.
+
+Alerts contain immutable acceptance-time contact/address/item/BDT/notes snapshots,
+labelled Pending/Unpaid and awaiting manual confirmation/payment. Long orders are
+sent completely in numbered plain-text parts below Telegram's 4096-character limit.
+Each part repeats the stable order number and part index/count. Customer-written
+fields are delimited and unsafe controls removed; no HTML/Markdown parse mode is
+enabled. The credential-free canonical `/admin/orders/{id}` link directs staff to
+current database state because alerts may be delayed or the order may have changed.
+No application credentials, guest capabilities, email proofs or payment secrets are sent.
+
+The separate worker uses conditional claims, fenced renewable three-minute leases
+and sequential sends spaced at least one second apart per worker. Each request is
+bounded to 15 seconds and a 64 KiB response. Progress is saved after each acknowledged
+part; retries resume at the first unacknowledged part. Telegram `429 retry_after` is
+honored, transient network/5xx retries back off up to one hour, permanent 400/401/403
+errors stop, and attempts are limited to ten per part and 24 hours per pending
+payload. Interrupted attempts remain counted. Expired active leases are reclaimed
+before retry/cleanup, including after a process restart. Run one sending API worker
+per dedicated bot for global one-second pacing; replicas fence individual rows but
+do not share an in-memory provider cooldown.
+
+One accepted order and one queued event do not guarantee exactly one Telegram
+message. Telegram has no documented `sendMessage` idempotency key: timeouts or a
+crash after sending but before progress persistence may duplicate the current part.
+Stable labels and database review are required; never create another order to retry
+an alert. Acknowledged sending is not proof the owner read or confirmed the order.
+There are no later-staff-action alerts, resend dashboard or customer messenger alerts.
+
+Complete, failed, exhausted and aged-out payloads are scrubbed, retaining only
+non-PII event/order/progress/provider-ID/fixed-failure metadata. Sanitized operational
+logs contain safe event/order IDs and fixed codes, not request/response bodies,
+exceptions, customer PII or URLs. The dedicated transport dispatches directly through
+.NET handlers, bypassing HTTP factory URL loggers and HttpClient/HttpMessageInvoker
+request telemetry, and disables its .NET diagnostic spans.
+Do not enable low-level HTTP diagnostics, request-body capture or platform/proxy URL
+tracing for this client: Telegram embeds the token in its request path. Future
+telemetry must retain this exclusion rather than exporting token-bearing URLs.
+
+The fallback is the existing protected staff order list plus sanitized failure logs.
+Accepted orders hold stock immediately and do not auto-expire when alerts fail.
+Staff must review pending orders and, if appropriate, cancel before shipment through
+existing audited controls. Fulfillment/payment records and the post-delivery full
+cash-collection guard remain authoritative; alerts never perform those commands.
+
+Telegram bot chats are cloud chats, not end-to-end encrypted. Approved privacy,
+data-processing and release review must cover sending fulfillment/contact information
+to the owner's private chat. Setup, outbound HTTPS connectivity and one sample
+order's complete parts require explicit operator authorization before live rollout.
+Ordinary implementation/tests use fake senders/HTTP handlers, not real bot credentials
+or live customer data. Provider references: [BotFather setup](https://core.telegram.org/bots/tutorial#obtain-your-bot-token),
+[sendMessage](https://core.telegram.org/bots/api#sendmessage),
+[getUpdates](https://core.telegram.org/bots/api#getupdates).
+
 ## Required Production Settings
 
 Provide values through protected hosting settings, not checked-in JSON or packages:
@@ -170,6 +269,8 @@ Provide values through protected hosting settings, not checked-in JSON or packag
 | `Mail__Username`, `Mail__Password` | Protected SMTP secrets if required |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
 | `Commerce__CheckoutEnabled` | Keep `false` through deployment and post-deploy checks; explicitly set `true` only when the operator reopens checkout |
+| `OwnerNotifications__Enabled` | `true` with approved private owner-alert processing; otherwise new Production checkout stays paused |
+| `Telegram__BotToken`, `Telegram__OwnerChatId` | Protected API-only dedicated bot token and verified positive private owner chat ID |
 
 Frontend requires `STOREFRONT_MODE=live`, server-only `API_BASE_URL` and canonical
 `STOREFRONT_URL`; remote HTTP URLs are rejected. Host-only cookies have no Domain
@@ -191,6 +292,10 @@ Each real-provider test creates a fresh `electromart_test_*` schema on MySQL 8.4
 SMTP tests require actual Mailpit on 1025/8025; a missing service is not evidence of
 a passing mail gate. Without the explicit MySQL connection integration tests are
 reported skipped, not validated.
+Owner-alert unit tests and focused MySQL outbox tests use synthetic configuration and
+fake HTTP/senders. They do not authorize real messages. Enable local MySQL/SMTP
+readiness only when the documented services are actually available; skipped durable
+enqueue/lease/migration tests and missing desktop/mobile E2E are unvalidated gates.
 
 ```powershell
 npm.cmd ci --registry=https://registry.npmjs.org/
@@ -250,6 +355,14 @@ Oracle migration replaces the obsolete Pomelo development schema; preserved
 production data requires a reviewed copy/cleanup/migration path, not an assumed
 in-place upgrade. Fractional legacy prices must be audited/rejected or explicitly
 rounded by an approved migration, never silently rounded by the storefront.
+
+`20261029133804_OwnerOrderNotifications` is a forward additive migration from
+`20261022123955_OracleCommerceInitial`: it only creates the protected notification
+outbox, order FK and indexes. Review its generated MySQL SQL, keep checkout closed
+for migration and paired API/frontend promotion, and preserve compatible rollback
+artifacts/backups. It does not reset/seed production, change historical orders or
+backfill notifications. Generating/reviewing SQL during implementation does not
+authorize a production migration or live deployment.
 
 Stop checkout and both application pools during contract-changing promotion. Deploy
 the tested artifact pair, run post-deploy health/contract/auth checks, then reopen

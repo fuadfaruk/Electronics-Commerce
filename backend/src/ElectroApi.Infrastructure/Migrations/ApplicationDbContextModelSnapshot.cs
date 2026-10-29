@@ -379,6 +379,68 @@ namespace ElectroApi.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ElectroApi.Core.Entities.OwnerOrderNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("CurrentPart")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("FailedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<long?>("LastMessageId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("LeaseUntil")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("PartCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ProtectedPayload")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.HasIndex("CompletedAt", "FailedAt", "CreatedAt");
+
+                    b.HasIndex("CompletedAt", "FailedAt", "NextAttemptAt", "LeaseUntil");
+
+                    b.ToTable("OwnerOrderNotifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_OwnerNotification_Progress", "PartCount > 0 AND CurrentPart >= 0 AND CurrentPart <= PartCount AND Attempts >= 0 AND Attempts <= 10");
+                        });
+                });
+
             modelBuilder.Entity("ElectroApi.Core.Entities.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -969,6 +1031,15 @@ namespace ElectroApi.Infrastructure.Migrations
                     b.HasOne("ElectroApi.Core.Entities.Product", null)
                         .WithMany()
                         .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ElectroApi.Core.Entities.OwnerOrderNotification", b =>
+                {
+                    b.HasOne("ElectroApi.Core.Entities.Order", null)
+                        .WithOne()
+                        .HasForeignKey("ElectroApi.Core.Entities.OwnerOrderNotification", "OrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
