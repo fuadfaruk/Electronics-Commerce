@@ -259,6 +259,38 @@ public sealed class OwnerNotificationOutboxTests
     }
 
     [MySqlFact]
+    public async Task Rate_limit_cooldown_blocks_later_orders_even_when_the_limited_payload_becomes_terminal()
+    {
+        foreach (var expired in new[] { false, true })
+        {
+            await using var database = await IsolatedDatabase.Create();
+            await using var fixture = await OutboxFixture.Create(database.ConnectionString);
+            var first = await fixture.Enqueue();
+            await fixture.Update(first.Id, row =>
+            {
+                row.CreatedAt = expired ? fixture.Clock.UtcNow.AddHours(-24).AddSeconds(1) : fixture.Clock.UtcNow.AddMinutes(-2);
+                row.Attempts = expired ? 0 : 9;
+            });
+            first = await fixture.Read(first.Id); var second = await fixture.Enqueue(); var sends = 0;
+            var sender = new RecordingSender(fixture.Clock, (_, _) =>
+            {
+                if (++sends > 1) return Task.FromResult(new OwnerNotificationSendResult(5100 + sends));
+                if (expired) fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+                return Task.FromResult(new OwnerNotificationSendResult(null, OwnerNotificationFailure.RateLimited, 120));
+            });
+            using var worker = fixture.Worker(sender);
+            Assert.True(await worker.ProcessOnce(default));
+            AssertTerminal(await fixture.Read(first.Id), first, expired ? "payload_expired" : "attempts_exhausted", expired ? 1 : 10);
+            Assert.False(await worker.ProcessOnce(default));
+            fixture.Clock.Advance(TimeSpan.FromSeconds(119)); Assert.False(await worker.ProcessOnce(default));
+            Assert.Single(sender.Calls); Assert.Equal(0, (await fixture.Read(second.Id)).Attempts);
+            fixture.Clock.Advance(TimeSpan.FromSeconds(1)); Assert.True(await worker.ProcessOnce(default));
+            Assert.NotNull((await fixture.Read(second.Id)).CompletedAt); Assert.Equal(2, sender.Calls.Length);
+            fixture.AssertSafeLogs();
+        }
+    }
+
+    [MySqlFact]
     public async Task Tenth_attempt_scrubs_current_part_retains_safe_metadata_and_preserves_commerce_state()
     {
         await using var database = await IsolatedDatabase.Create();

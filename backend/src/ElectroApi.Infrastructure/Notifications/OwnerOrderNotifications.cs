@@ -43,12 +43,15 @@ public sealed class OwnerOrderNotifications(IDataProtectionProvider protection, 
     public OwnerOrderNotification? Create(Order order)
     {
         if (!settings.Enabled) return null;
-        var origin = configuration["Storefront:Origin"] ?? throw new InvalidOperationException("A canonical storefront origin is required.");
+        if (!Uri.TryCreate(configuration["Storefront:Origin"], UriKind.Absolute, out var origin) ||
+            !string.IsNullOrEmpty(origin.UserInfo) || origin.AbsolutePath != "/" || !string.IsNullOrEmpty(origin.Query) || !string.IsNullOrEmpty(origin.Fragment) ||
+            origin.Scheme != "https" && !(origin.IsLoopback && origin.Scheme == "http"))
+            throw new InvalidOperationException("A canonical credential-free storefront origin is required.");
         var text = new StringBuilder();
         text.Append("Accepted at: ").Append(order.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture)).Append('\n');
         text.Append("Acceptance snapshot: Pending / Unpaid, awaiting manual confirmation/payment.\n");
         text.Append("This alert is not confirmation or proof of payment. Alerts may be delayed; review current database state before acting.\n");
-        text.Append("Staff order: ").Append(origin.TrimEnd('/')).Append("/admin/orders/").Append(order.Id).Append("\n\n");
+        text.Append("Staff order: ").Append(origin.GetLeftPart(UriPartial.Authority)).Append("/admin/orders/").Append(order.Id).Append("\n\n");
         Field(text, "Name", order.Contact.Name);
         Field(text, "Phone", order.Contact.Phone);
         Field(text, "Email", order.Contact.Email);

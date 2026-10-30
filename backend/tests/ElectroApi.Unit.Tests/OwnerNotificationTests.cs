@@ -86,6 +86,36 @@ public sealed class OwnerNotificationTests(ITestOutputHelper output)
         AssertField(text, "Customer notes", "None");
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("https://user:synthetic-password@example.com")]
+    [InlineData("https://example.com/nested")]
+    [InlineData("https://example.com/?token=synthetic-secret")]
+    [InlineData("https://example.com/#proof=synthetic-secret")]
+    [InlineData("ftp://example.com")]
+    [InlineData("http://example.com")]
+    public void Staff_link_rejects_noncanonical_or_credential_bearing_origin_without_echoing_configuration(string? origin)
+    {
+        var configuration = Configuration();
+        configuration["Storefront:Origin"] = origin;
+        var builder = Builder(configuration);
+        var error = Assert.Throws<InvalidOperationException>(() => builder.Create(SampleOrder()));
+        Assert.Equal("A canonical credential-free storefront origin is required.", error.Message);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/")]
+    [InlineData("http://localhost:3000")]
+    public void Staff_link_uses_canonical_root_including_local_development(string origin)
+    {
+        var configuration = Configuration();
+        configuration["Storefront:Origin"] = origin;
+        var builder = Builder(configuration);
+        var order = SampleOrder();
+        Assert.Contains($"Staff order: {new Uri(origin).GetLeftPart(UriPartial.Authority)}/admin/orders/{order.Id}\n", Body(builder.Read(builder.Create(order)!.ProtectedPayload)));
+    }
+
     [Fact]
     public void Protected_payload_contains_only_owner_snapshot_not_ownership_account_capabilities_or_proofs()
     {
@@ -151,7 +181,7 @@ public sealed class OwnerNotificationTests(ITestOutputHelper output)
         order.Lines[0].Quantity = 99;
         order.Lines[0].UnitPrice = 99m;
         order.Lines.Clear();
-        configuration["Storefront:Origin"] = "https://example.com/changed";
+        configuration["Storefront:Origin"] = "https://changed.example.com";
         configuration["Telegram:OwnerChatId"] = long.MaxValue.ToString(CultureInfo.InvariantCulture);
         configuration["Telegram:BotToken"] = "987654321:" + new string('S', 35);
 
@@ -611,6 +641,8 @@ public sealed class OwnerNotificationTests(ITestOutputHelper output)
     [InlineData("not JSON")]
     [InlineData("")]
     [InlineData("null")]
+    [InlineData("{\"ok\":true,\"error_code\":403}")]
+    [InlineData("{\"ok\":false,\"result\":{\"message_id\":42}}")]
     [InlineData("{\"parameters\":{\"retry_after\":0}}")]
     [InlineData("{\"parameters\":{\"retry_after\":-1}}")]
     [InlineData("{\"parameters\":{\"retry_after\":\"60\"}}")]
@@ -759,17 +791,19 @@ public sealed class OwnerNotificationTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Response_read_network_failure_and_simulated_timeout_are_classified_without_waiting(bool timeout)
+    [InlineData(200, false, OwnerNotificationFailure.NetworkError)]
+    [InlineData(200, true, OwnerNotificationFailure.Timeout)]
+    [InlineData(429, false, OwnerNotificationFailure.RateLimited)]
+    [InlineData(429, true, OwnerNotificationFailure.RateLimited)]
+    public async Task Response_read_failures_preserve_known_rate_limits_without_waiting(int status, bool timeout, OwnerNotificationFailure failure)
     {
         var stream = new TrackedStream(Encoding.UTF8.GetBytes(SuccessJson()), onRead: _ => throw (timeout
             ? new OperationCanceledException("Synthetic response timeout " + BotToken)
             : new IOException("Synthetic response failure " + BotToken)));
-        using var handler = new FakeHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(stream) }));
+        using var handler = new FakeHandler((_, _) => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status) { Content = new StreamContent(stream) }));
         using var sender = Sender(handler);
         var result = await sender.Send(OwnerChatId, "Sample", CancellationToken.None);
-        AssertFailure(result, timeout ? OwnerNotificationFailure.Timeout : OwnerNotificationFailure.NetworkError, permanent: false);
+        AssertFailure(result, failure, permanent: false);
         Assert.DoesNotContain(BotToken, result.ToString());
         Assert.True(stream.Disposed);
     }

@@ -82,6 +82,7 @@ public sealed class OwnerNotificationOutboxWorker(IServiceScopeFactory scopes, O
         catch (Exception) when (!ct.IsCancellationRequested) { result = new(null, OwnerNotificationFailure.NetworkError); }
         finally { _nextSendAt = time.GetUtcNow().UtcDateTime.AddSeconds(1); }
         now = time.GetUtcNow().UtcDateTime;
+        if (result.Failure == OwnerNotificationFailure.RateLimited) _nextSendAt = now + RetryDelay(row.Attempts, result);
         if (result.Succeeded)
         {
             var nextPart = row.CurrentPart + 1;
@@ -101,7 +102,6 @@ public sealed class OwnerNotificationOutboxWorker(IServiceScopeFactory scopes, O
         else
         {
             var delay = RetryDelay(row.Attempts, result);
-            if (result.Failure == OwnerNotificationFailure.RateLimited) _nextSendAt = now + delay;
             var retried = await Owned(db, row, leaseId, now).ExecuteUpdateAsync(s => s
                 .SetProperty(n => n.NextAttemptAt, now + delay).SetProperty(n => n.FailureCode, result.SafeCode)
                 .SetProperty(n => n.LeaseId, (Guid?)null).SetProperty(n => n.LeaseUntil, (DateTime?)null), ct);

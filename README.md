@@ -319,11 +319,23 @@ traces/video/screenshots are disabled to avoid capturing email proofs.
 Local validation on 2026-10-23 passed 273 frontend tests (90.44% line coverage),
 lint, explicit-live typecheck, the Next.js 16.4.2 production build, 14 desktop/mobile
 browser tests over trusted local HTTPS, and 14 release-automation regressions.
-Retained current-backend evidence passes 18 unit plus 43 real-MySQL/SMTP integration
+Retained pre-notification backend evidence passes 18 unit plus 43 real-MySQL/SMTP integration
 tests with zero failures/skips; Debug/Release builds and framework-dependent publish
 passed. Workflow/PowerShell syntax and tracked/untracked case-fold checks also pass.
 Playwright artifacts are separate from Vitest JUnit output; both reports survive E2E,
 and all owned API/Next/TLS test listeners were stopped after the run.
+
+Owner-alert validation on 2026-10-30 passed the backend solution build with zero
+warnings/errors, 192 unit tests, 38 non-service integration cases, 279 frontend
+tests (90.44% line coverage), lint, explicit-live typecheck/production build and
+39 release-automation regressions. The current EF model matches the additive
+migration snapshot, and generated forward SQL was reviewed without applying it.
+The 47 MySQL/SMTP-dependent cases were skipped: their explicit service settings
+were absent and the local Docker Linux engine was unavailable. All 14 desktop/mobile
+Playwright specs were discovered, but actual E2E stopped at missing-service
+prerequisites. These durable enqueue/lease/migration/mail/browser gates remain
+unvalidated, not passing evidence. No live Telegram messages, production migration
+or deployment were performed or authorized by this validation.
 
 Fresh audits found Next.js runtime advisories `GHSA-2464-fhr4-w9xw`,
 `GHSA-673q-mjm6-r5xr` and `GHSA-p3m5-59mp-jv5r` in the former 16.3.8 pin. The user

@@ -86,8 +86,8 @@ public sealed class TelegramOwnerNotificationSender(OwnerNotificationSettings se
             var root = json.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return new(null, status == 429 ? OwnerNotificationFailure.RateLimited : OwnerNotificationFailure.InvalidResponse);
             var hasOk = root.TryGetProperty("ok", out var ok);
-            if ((hasOk && ok.ValueKind == JsonValueKind.True && root.TryGetProperty("error_code", out _)) ||
-                (hasOk && ok.ValueKind == JsonValueKind.False && root.TryGetProperty("result", out _)))
+            if (status != 429 && ((hasOk && ok.ValueKind == JsonValueKind.True && root.TryGetProperty("error_code", out _)) ||
+                (hasOk && ok.ValueKind == JsonValueKind.False && root.TryGetProperty("result", out _))))
                 return new(null, OwnerNotificationFailure.InvalidResponse);
             if (status == 429 || root.TryGetProperty("error_code", out var error) && error.ValueKind == JsonValueKind.Number && error.TryGetInt32(out var code) && code == 429)
             {
@@ -112,9 +112,9 @@ public sealed class TelegramOwnerNotificationSender(OwnerNotificationSettings se
                 return new(null, OwnerNotificationFailure.RecipientMismatch);
             return new(messageId);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(null, OwnerNotificationFailure.Timeout); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(null, status == 429 ? OwnerNotificationFailure.RateLimited : OwnerNotificationFailure.Timeout); }
         catch (JsonException) { return new(null, status == 429 ? OwnerNotificationFailure.RateLimited : OwnerNotificationFailure.InvalidResponse); }
-        catch (Exception) when (!ct.IsCancellationRequested) { return new(null, OwnerNotificationFailure.NetworkError); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return new(null, status == 429 ? OwnerNotificationFailure.RateLimited : OwnerNotificationFailure.NetworkError); }
     }
 
     private static OwnerNotificationSendResult Error(int code) => new(null, code switch
