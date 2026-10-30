@@ -122,4 +122,15 @@ describe("account mutation controls", () => {
     render(<AuthForm action="login" mode="mock" />);
     expect((screen.getByRole("button", { name: "Sign in" }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true); expect(fetch).not.toHaveBeenCalled();
   });
+  it("keeps staff sign-in without customer registration or email recovery links", async () => {
+    const fetch = vi.fn().mockImplementation(async (url: string) => Response.json(url.endsWith("csrf") ? { token: "csrf_123", ownerKind: "guest" } : { ...account, isAdmin: true }));
+    vi.stubGlobal("fetch", fetch);
+    render(<AuthForm action="login" mode="live" staffOnly next="/account" />);
+    expect(screen.getByRole("heading", { name: "Staff sign in" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Account options" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: account.email } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Testing123!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/admin"));
+  });
 });

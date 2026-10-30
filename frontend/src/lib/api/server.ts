@@ -10,7 +10,7 @@ import { responseJson } from "@/lib/api/response";
 export async function serverGet<T>(path: string, decode: (value: unknown) => T, query = new URLSearchParams()): Promise<T> {
   const config = getStorefrontConfig();
   if (config.mode !== "live") throw new ApiRequestError({ status: 403, code: "MOCK_READ_ONLY" });
-  const route = commerceRoute("GET", path.split("/"));
+  const route = commerceRoute("GET", path.split("/"), config.guestOnly);
   if (!route) throw new ApiRequestError({ status: 404 });
   const params = allowQuery(query, route);
   const header = selectedCookies((await cookies()).getAll());

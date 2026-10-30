@@ -9,7 +9,7 @@ import { cartStorageKey, emptyCart } from "@/lib/cart/storage";
 import { ATTEMPT_STORAGE_KEY, attemptMemory, clearAttempt, createAttempt, readAttempt } from "@/lib/checkout/attempt";
 import { withStorageLock } from "@/lib/storage-lock";
 import { formatBDT } from "@/lib/money";
-import { account, cartLine, order, orderRequest, quote } from "@/test/fixtures";
+import { account, cartLine, order, orderReceipt, orderRequest, quote } from "@/test/fixtures";
 
 const mocks = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks, unstable_rethrow: () => {} }));
@@ -46,7 +46,7 @@ describe("authoritative quote and uncertain order recovery", () => {
       throw new Error("Unexpected request");
     });
     vi.stubGlobal("fetch", fetch);
-    const view = render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    const view = render(<CartProvider source="live"><CheckoutForm initialAccount={null} guestOnly={false} /></CartProvider>);
     await reviewQuote();
     expect(screen.getByRole("checkbox", { name: /I reviewed this quote/ }).closest("label")?.textContent).toBe(`I reviewed this quote and agree to the items, delivery charge and order total of ${formatBDT(quote.money.total)}.`);
     expect((screen.getByLabelText("Email") as HTMLInputElement).required).toBe(true);
@@ -69,7 +69,7 @@ describe("authoritative quote and uncertain order recovery", () => {
       if (url.includes("/Order/attempt/")) return Response.json(order);
       throw new Error("Unexpected request");
     }); vi.stubGlobal("fetch", fetch);
-    render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={null} guestOnly={false} /></CartProvider>);
     await waitFor(() => expect((screen.getByRole("button", { name: "Check price and availability" }) as HTMLButtonElement).disabled).toBe(false));
     fillContact(); fireEvent.click(screen.getByRole("button", { name: "Check price and availability" }));
     const acknowledgment = await screen.findByRole("checkbox", { name: /I reviewed this quote/ });
@@ -90,7 +90,7 @@ describe("authoritative quote and uncertain order recovery", () => {
   });
   it("blocks stale account checkout without attempting quote or guest fallback", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ token: "expired_csrf", ownerKind: "account", account: null, sessionExpired: true })); vi.stubGlobal("fetch", fetch);
-    render(<CartProvider source="live"><CheckoutForm initialAccount={account} /></CartProvider>);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={account} guestOnly={false} /></CartProvider>);
     await screen.findByText(/checkout will not switch to a guest/);
     expect((screen.getByRole("button", { name: "Check price and availability" }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/api/bff/Security/csrf"]);
@@ -166,7 +166,7 @@ describe("authoritative quote and uncertain order recovery", () => {
       throw new Error("Unexpected request");
     });
     vi.stubGlobal("fetch", fetch);
-    const view = render(<CartProvider source="live"><CheckoutForm key="first" initialAccount={null} /></CartProvider>);
+    const view = render(<CartProvider source="live"><CheckoutForm key="first" initialAccount={null} guestOnly={false} /></CartProvider>);
     await reviewQuote();
     const setItem = Storage.prototype.setItem;
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
@@ -180,7 +180,7 @@ describe("authoritative quote and uncertain order recovery", () => {
     expect(window.localStorage.getItem(ATTEMPT_STORAGE_KEY)).toBeNull();
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
     const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Denied"); });
-    view.rerender(<CartProvider source="live"><CheckoutForm key="returned" initialAccount={null} /></CartProvider>);
+    view.rerender(<CartProvider source="live"><CheckoutForm key="returned" initialAccount={null} guestOnly={false} /></CartProvider>);
     await screen.findByText(`Attempt: ${reference.idempotencyKey}`);
     expect(screen.queryByRole("button", { name: "Check price and availability" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry the exact original request" }));
@@ -206,7 +206,7 @@ describe("authoritative quote and uncertain order recovery", () => {
       throw new Error("Unexpected request");
     });
     vi.stubGlobal("fetch", fetch);
-    const view = render(<CartProvider source="live"><CheckoutForm key="first" initialAccount={null} /></CartProvider>);
+    const view = render(<CartProvider source="live"><CheckoutForm key="first" initialAccount={null} guestOnly={false} /></CartProvider>);
     await reviewQuote(); fireEvent.click(screen.getByRole("button", { name: "Place order" }));
     await screen.findByText(/The checkout is not resolved/);
     const reference = readAttempt().reference!;
@@ -216,7 +216,7 @@ describe("authoritative quote and uncertain order recovery", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Denied"); });
     vi.stubGlobal("navigator", { locks: { request: vi.fn().mockRejectedValue(new Error("Denied")) } });
     vi.spyOn(Date, "now").mockReturnValue(Date.parse(expiresAt) + 1);
-    view.rerender(<CartProvider source="live"><CheckoutForm key="returned" initialAccount={null} /></CartProvider>);
+    view.rerender(<CartProvider source="live"><CheckoutForm key="returned" initialAccount={null} guestOnly={false} /></CartProvider>);
     await screen.findByText(`Attempt: ${reference.idempotencyKey}`);
     expect(screen.queryByRole("button", { name: "Check price and availability" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Check for receipt" }));
@@ -245,7 +245,7 @@ describe("authoritative quote and uncertain order recovery", () => {
       throw new Error("Unexpected request");
     });
     vi.stubGlobal("fetch", fetch);
-    render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={null} guestOnly={false} /></CartProvider>);
     await screen.findByRole("button", { name: "Check for receipt" });
     fireEvent.click(screen.getByRole("button", { name: "Check for receipt" }));
     await screen.findByRole("button", { name: "Replay the original checkout attempt" });
@@ -277,5 +277,96 @@ describe("authoritative quote and uncertain order recovery", () => {
     await screen.findByText(`Attempt: ${other.idempotencyKey}`);
     expect(window.localStorage.getItem(ATTEMPT_STORAGE_KEY)).toBe(JSON.stringify(other));
     expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(0);
+  });
+});
+
+describe("default guest-only checkout", () => {
+  it("shows a simple receipt without tracking, email promises, account links or redirects", async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
+      if (url.endsWith("quote")) return Response.json({ ...quote, expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      if (url === "/api/bff/Order") return Response.json(orderReceipt);
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    await reviewQuote();
+    expect(view.container.textContent).not.toMatch(/private order link|verification email|account history/i);
+    expect(view.container.querySelector('a[href^="/account"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    await screen.findByRole("heading", { name: "Order received" });
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Order received" }));
+    expect(screen.getByText(`Order ${order.number}`)).toBeTruthy();
+    expect(screen.getByText("Order total")).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/Pending|Unpaid|fulfillment|timeline|tracking|refresh/i);
+    expect(view.container.textContent).not.toMatch(/will contact/i);
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(readAttempt().reference).toBeNull();
+    expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(1);
+  });
+  it("recovers a lost acceptance response using only the immutable original receipt", async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
+      if (url.endsWith("quote")) return Response.json({ ...quote, expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      if (url === "/api/bff/Order") throw new Error("Lost response");
+      if (url.includes("/Order/attempt/")) return Response.json(orderReceipt);
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    await reviewQuote(); fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    await screen.findByText(/The checkout is not resolved/);
+    const reference = readAttempt().reference!;
+    fireEvent.click(screen.getByRole("button", { name: "Check for receipt" }));
+    await screen.findByRole("heading", { name: "Order received" });
+    expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(1);
+    expect(fetch.mock.calls.some(([url]) => url === `/api/bff/Order/attempt/${reference.idempotencyKey}`)).toBe(true);
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(readAttempt().reference).toBeNull();
+  });
+  it("treats a second guest order as a definite rejection and blocks further submissions", async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
+      if (url.endsWith("quote")) return Response.json({ ...quote, expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      if (url === "/api/bff/Order") return Response.json({ code: "guest_order_limit" }, { status: 409 });
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    await reviewQuote(); fireEvent.click(screen.getByRole("button", { name: "Place order" }));
+    await screen.findByText(/This additional attempt was rejected/);
+    expect(screen.getByText(/Order already placed/)).toBeTruthy();
+    expect(readAttempt().reference).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check for receipt" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Place order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Check price and availability" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetch.mock.calls.filter(([url]) => url === "/api/bff/Order")).toHaveLength(1);
+  });
+  it("requires explicit sign-out for existing accounts without guest fallback or email controls", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ token: "fresh_csrf", ownerKind: "account", account }));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<CartProvider source="live"><CheckoutForm initialAccount={account} /></CartProvider>);
+    await screen.findByText(/Sign out explicitly before starting a guest order/);
+    expect(screen.getByRole("button", { name: "Sign out on all devices" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Check price and availability" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.container.querySelector('a[href^="/account"]')).toBeNull();
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/api/bff/Security/csrf"]);
+  });
+  it("blocks a used guest before quote review without creating an acceptance attempt", async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith("csrf")) return Response.json({ token: "fresh_csrf", ownerKind: "guest" });
+      if (url.endsWith("quote")) return Response.json({ code: "guest_order_limit" }, { status: 409 });
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<CartProvider source="live"><CheckoutForm initialAccount={null} /></CartProvider>);
+    const button = await screen.findByRole("button", { name: "Check price and availability" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText("GUEST_ORDER_LIMIT");
+    expect(button.disabled).toBe(true);
+    expect(readAttempt().reference).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => url === "/api/bff/Order")).toBe(false);
   });
 });

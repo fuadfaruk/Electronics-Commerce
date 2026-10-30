@@ -11,8 +11,47 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 class E2eError extends Error {}
 
 export function disableOwnerNotifications(environment = process.env) {
-  const inherited = Object.fromEntries(Object.entries(environment).filter(([key]) => !/^(OwnerNotifications|Telegram)__/i.test(key)));
+  const inherited = Object.fromEntries(Object.entries(environment).filter(([key]) => !/^(OwnerNotifications|Telegram)(?:__|:)/i.test(key)));
   return { ...inherited, OwnerNotifications__Enabled: "false", Telegram__BotToken: "", Telegram__OwnerChatId: "" };
+}
+
+export function createE2eEnvironment(environment = process.env) {
+  const extended = environment.ELECTROMART_EXTENDED_FEATURES === "1";
+  const mysql = environment.ELECTROMART_TEST_MYSQL;
+  if (!mysql) throw new E2eError("Explicit isolated local MySQL 8.4 is required for E2E.");
+  if (extended && environment.ELECTROMART_TEST_SMTP !== "1") throw new E2eError("Extended E2E requires explicit local SMTP capture readiness.");
+  const hosts = [...mysql.matchAll(/(?:^|;)\s*(?:server|host|data\s*source|address|addr|network\s*address)\s*=\s*([^;]*)/gi)];
+  if (hosts.length !== 1 || !/^(?:localhost|127\.0\.0\.1|mysql)$/i.test(hosts[0][1].trim())) throw new E2eError("E2E refuses nonlocal or ambiguous MySQL servers.");
+  const database = "electromart_test_" + randomUUID().replaceAll("-", "");
+  const connection = mysql.replace(/(?:^|;)\s*(?:database|initial catalog)\s*=[^;]*/gi, "") + ";Database=" + database + ";";
+  if (Boolean(environment.E2E_TLS_CERT) !== Boolean(environment.E2E_TLS_KEY)) throw new E2eError("Local E2E TLS requires both certificate and key.");
+  const tls = Boolean(environment.E2E_TLS_CERT);
+  const origin = tls ? "https://localhost:3443" : "http://localhost:3000";
+  const api = tls ? "https://localhost:7220" : "http://localhost:5249";
+  const inherited = Object.fromEntries(Object.entries(disableOwnerNotifications(environment)).filter(([key]) =>
+    !/^(Mail(?:__|:)|Commerce(?:__|:)(?:GuestOnly|CheckoutEnabled)$|ConnectionStrings(?:__|:)DefaultConnection$|STOREFRONT_GUEST_ONLY$|ELECTROMART_EXTENDED_FEATURES$|ELECTROMART_TEST_(?:MYSQL|SMTP)$)/i.test(key)));
+  return {
+    ...inherited,
+    ASPNETCORE_ENVIRONMENT: "Development", DOTNET_ENVIRONMENT: "Development", NODE_ENV: "production",
+    ConnectionStrings__DefaultConnection: connection,
+    Storefront__Origin: origin,
+    Security__KeyPath: path.join(os.tmpdir(), "kilo", "electromart_e2e_keys_" + database),
+    Security__DevelopmentHttps: String(tls), Commerce__CheckoutEnabled: "true", Commerce__GuestOnly: String(!extended),
+    Mail__Enabled: String(extended),
+    ...(extended ? {
+      ELECTROMART_TEST_SMTP: "1", Mail__Host: "127.0.0.1", Mail__Port: "1025", Mail__EnableSsl: "false",
+      Mail__Sender: "development@example.com", Mail__Username: "", Mail__Password: "",
+    } : {}),
+    Logging__LogLevel__Default: "Warning", Logging__LogLevel__Microsoft: "Warning",
+    "Logging__LogLevel__Microsoft.Hosting.Lifetime": "Information",
+    STOREFRONT_MODE: "live", STOREFRONT_GUEST_ONLY: String(!extended), STOREFRONT_URL: origin, API_BASE_URL: api,
+    ELECTROMART_EXTENDED_FEATURES: extended ? "1" : "0",
+    NODE_USE_SYSTEM_CA: "1",
+    NODE_OPTIONS: [environment.NODE_OPTIONS, tls ? `--require="${path.join(root, "scripts", "e2e-ca.cjs").replaceAll("\\", "/")}"` : ""].filter(Boolean).join(" "),
+    E2E_BASE_URL: origin, E2E_TLS_PORT: "3443", E2E_HTTP_PORT: "3000",
+    PORT: "3000", HOSTNAME: "127.0.0.1",
+    Bootstrap__Email: "operator@example.com", Bootstrap__Password: "E2eOperator1!",
+  };
 }
 
 export async function assertPortsAvailable(ports = [3000, 3443, 5249, 7220]) {
@@ -191,32 +230,10 @@ async function main() {
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
   try {
-    const mysql = process.env.ELECTROMART_TEST_MYSQL;
-    if (!mysql || process.env.ELECTROMART_TEST_SMTP !== "1") throw new E2eError("Explicit isolated MySQL 8.4 and SMTP capture readiness are required for E2E.");
-    const database = "electromart_test_" + randomUUID().replaceAll("-", "");
-    const connection = mysql.replace(/(?:^|;)\s*(?:database|initial catalog)\s*=[^;]*/gi, "") + ";Database=" + database + ";";
-    if (!/(?:server|host)\s*=\s*(?:localhost|127\.0\.0\.1|mysql)\s*;/i.test(connection)) throw new E2eError("E2E refuses nonlocal MySQL servers.");
-    if (Boolean(process.env.E2E_TLS_CERT) !== Boolean(process.env.E2E_TLS_KEY)) throw new E2eError("Local E2E TLS requires both certificate and key.");
-    const tls = Boolean(process.env.E2E_TLS_CERT);
-    const origin = tls ? "https://localhost:3443" : "http://localhost:3000";
-    const api = tls ? "https://localhost:7220" : "http://localhost:5249";
-    const env = {
-      ...disableOwnerNotifications(),
-      ASPNETCORE_ENVIRONMENT: "Development", DOTNET_ENVIRONMENT: "Development", NODE_ENV: "production",
-      ConnectionStrings__DefaultConnection: connection,
-      Storefront__Origin: origin,
-      Security__KeyPath: path.join(os.tmpdir(), "kilo", "electromart_e2e_keys_" + database),
-      Security__DevelopmentHttps: String(tls), Commerce__CheckoutEnabled: "true",
-      Mail__Host: "127.0.0.1", Mail__Port: "1025", Mail__EnableSsl: "false", Mail__Sender: "development@example.com",
-      Logging__LogLevel__Default: "Warning", Logging__LogLevel__Microsoft: "Warning",
-      "Logging__LogLevel__Microsoft.Hosting.Lifetime": "Information",
-      STOREFRONT_MODE: "live", STOREFRONT_URL: origin, API_BASE_URL: api,
-      NODE_USE_SYSTEM_CA: "1",
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, tls ? `--require="${path.join(root, "scripts", "e2e-ca.cjs").replaceAll("\\", "/")}"` : ""].filter(Boolean).join(" "),
-      E2E_BASE_URL: origin, E2E_TLS_PORT: "3443", E2E_HTTP_PORT: "3000",
-      PORT: "3000", HOSTNAME: "127.0.0.1",
-      Bootstrap__Email: "operator@example.com", Bootstrap__Password: "E2eOperator1!",
-    };
+    const env = createE2eEnvironment();
+    const tls = env.Security__DevelopmentHttps === "true";
+    const origin = env.STOREFRONT_URL;
+    const api = env.API_BASE_URL;
     runner = createE2eRunner(env);
     await access(root);
     await access(assembly);

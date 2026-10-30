@@ -37,17 +37,10 @@ jobs:
         options: >-
           --health-cmd="mysqladmin ping --host=127.0.0.1 --password=electromart-local-ci-only --silent"
           --health-interval=5s --health-timeout=5s --health-retries=30
-      mailpit:
-        image: axllent/mailpit:v1.29.0
-        ports:
-          - 1025:1025
-          - 8025:8025
-        options: >-
-          --health-cmd="/mailpit readyz" --health-interval=5s --health-timeout=5s --health-retries=30
     env:
       ELECTROMART_TEST_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=electromart-local-ci-only;SslMode=Disabled;AllowPublicKeyRetrieval=True
-      ELECTROMART_TEST_SMTP: "1"
       STOREFRONT_MODE: live
+      STOREFRONT_GUEST_ONLY: "true"
       API_BASE_URL: http://localhost:5249
       STOREFRONT_URL: http://localhost:3000
     steps:
@@ -79,8 +72,8 @@ jobs:
         run: dotnet restore backend/ElectroApi.slnx -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low -warnaserror:NU1900,NU1901,NU1902,NU1903,NU1904,NU1905
       - name: Build Backend
         run: dotnet build backend/ElectroApi.slnx --no-restore
-      - name: Test Backend Against MySQL And SMTP
-        run: dotnet test backend/ElectroApi.slnx --no-build --no-restore --logger "trx" --collect:"XPlat Code Coverage" --results-directory artifacts/backend-tests
+      - name: Test Backend Against MySQL Without SMTP
+        run: dotnet test backend/ElectroApi.slnx --no-build --no-restore --filter "FullyQualifiedName!~Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload" --logger "trx" --collect:"XPlat Code Coverage" --results-directory artifacts/backend-tests
       - name: Install Frontend From Lock
         working-directory: frontend
         run: npm ci
@@ -104,9 +97,34 @@ jobs:
       - name: Install Playwright Chromium
         working-directory: frontend
         run: npx --no-install playwright install --with-deps chromium
-      - name: Live Production Stack E2E
+      - name: Guest-Only Production Stack E2E
         working-directory: frontend
+        env:
+          ELECTROMART_EXTENDED_FEATURES: "0"
+          ELECTROMART_TEST_SMTP: "0"
         run: npm run test:e2e
+      - name: Start Optional Local SMTP Capture
+        run: |
+          # Local inbox only, with no relay or live integration credentials.
+          docker run --detach --rm --name commerce-test-mailpit --publish 127.0.0.1:1025:1025 --publish 127.0.0.1:8025:8025 --health-cmd="/mailpit readyz" --health-interval=2s --health-timeout=2s --health-retries=30 axllent/mailpit:v1.29.0
+          for attempt in $(seq 1 30); do
+            if test "$(docker inspect --format '{{.State.Health.Status}}' commerce-test-mailpit)" = healthy; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Test Explicit SMTP Capture Integration
+        env:
+          ELECTROMART_TEST_SMTP: "1"
+        run: dotnet test backend/ElectroApi.slnx --no-build --no-restore --filter "FullyQualifiedName~Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload" --logger "trx" --collect:"XPlat Code Coverage" --results-directory artifacts/backend-tests/smtp
+      - name: Extended Production Stack E2E
+        working-directory: frontend
+        env:
+          ELECTROMART_EXTENDED_FEATURES: "1"
+          ELECTROMART_TEST_SMTP: "1"
+        run: npm run test:e2e
+      - name: Stop Optional Local SMTP Capture
+        if: always()
+        run: docker rm --force commerce-test-mailpit 2>/dev/null || true
       - name: Capture NuGet Vulnerability Evidence
         if: always()
         run: node scripts/capture-nuget-audit.mjs
@@ -134,6 +152,7 @@ jobs:
     timeout-minutes: 25
     env:
       STOREFRONT_MODE: live
+      STOREFRONT_GUEST_ONLY: "true"
       # Build-time placeholders only; no hosting credentials or production fetches.
       API_BASE_URL: https://api.build.invalid
       STOREFRONT_URL: https://storefront.build.invalid

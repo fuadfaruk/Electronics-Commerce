@@ -18,6 +18,8 @@ const SAFE_MESSAGES: Record<string, [string, string]> = {
   IDEMPOTENCY_CONFLICT: ["Checkout attempt differs", "This attempt key belongs to a different request. Do not submit a new order until the earlier attempt is resolved."],
   ATTEMPT_PENDING: ["Checkout is being resolved", "The earlier checkout may still be processing. Check for its receipt before placing another order."],
   IDENTITY_CHANGED: ["Checkout identity changed", "The checkout owner changed. Resolve any earlier attempt before requesting a new quote."],
+  GUEST_CHECKOUT_REQUIRED: ["Guest checkout only", "Sign out before starting a new guest order. Resolve any earlier checkout before changing identity."],
+  GUEST_ORDER_LIMIT: ["Order already placed", "Only one order is allowed for this guest. The store already has your order; another order will not be placed."],
   CSRF_FAILED: ["Security check failed", "The security check could not be completed. Reload the page before trying again."],
   RATE_LIMITED: ["Please wait", "Too many requests were made. Wait a little before trying again."],
   MOCK_READ_ONLY: ["Sample catalog only", "Accounts and checkout are disabled in mock mode. No live order will be placed."],
@@ -36,6 +38,7 @@ const BACKEND_CODES: Record<string, string> = {
   stale_version: "VERSION_CONFLICT", idempotency_conflict: "IDEMPOTENCY_CONFLICT",
   quote_already_accepted: "IDEMPOTENCY_CONFLICT", proof_expired: "PROOF_EXPIRED", proof_invalid: "INVALID_PROOF",
   request_throttled: "RATE_LIMITED", temporarily_unavailable: "SERVICE_UNAVAILABLE",
+  guest_checkout_required: "GUEST_CHECKOUT_REQUIRED", guest_order_limit: "GUEST_ORDER_LIMIT",
 };
 
 export function safeTraceId(value: unknown): string | undefined {

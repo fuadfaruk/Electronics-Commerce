@@ -13,6 +13,7 @@ namespace ElectroApi.Integration.Tests;
 internal sealed class CommerceApiFactory(string connectionString, string keyPath, bool mailEnabled = false, string environment = "Development", IReadOnlyDictionary<string, string?>? overrides = null) : WebApplicationFactory<Program>
 {
     public const string Origin = "https://localhost:3000";
+    public static IReadOnlyDictionary<string, string?> FullFeatures => new Dictionary<string, string?> { ["Commerce:GuestOnly"] = "false", ["Mail:Enabled"] = "true" };
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environment);
@@ -24,6 +25,7 @@ internal sealed class CommerceApiFactory(string connectionString, string keyPath
                 ["Storefront:Origin"] = Origin,
                 ["Security:KeyPath"] = keyPath,
                 ["Security:DevelopmentHttps"] = "true",
+                ["Mail:Enabled"] = mailEnabled ? "true" : "false",
                 ["Mail:Host"] = mailEnabled ? "127.0.0.1" : "",
                 ["Mail:Port"] = "1025",
                 ["Mail:EnableSsl"] = "false",

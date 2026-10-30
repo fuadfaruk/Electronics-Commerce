@@ -1,10 +1,11 @@
 # ElectroMart
 
 A electronics gadgets storefront with an ASP.NET Core/MySQL commerce API.
-The MVP supports manual order/payment confirmation, verified customer accounts,
-private guest tracking and a protected staff dashboard. Customers place ordinary
-orders without a messenger account; the owner receives private backend-only Telegram
-alerts when enabled. Existing cash collection after delivery remains unchanged.
+The current mode supports one order per guest, a simple acceptance receipt and a
+protected staff dashboard for manual order/payment confirmation. Only the frontend,
+backend and MySQL database are required. Customer accounts, private tracking, email
+and private owner Telegram alerts are retained but disabled by default, so they can
+be enabled later. Existing cash collection after delivery remains unchanged.
 There is no online payment, advance-payment or refund integration.
 This is not a production-release approval.
 
@@ -28,8 +29,8 @@ Canonical paths are `backend/ElectroApi.slnx`, `backend/src/ElectroApi.*` and
 
 ## Local Development
 
-Docker Compose provides a separate `electromart_mvp_dev` schema and local SMTP
-capture. Provide local-only passwords in your shell; they are not supplied by the
+Docker Compose provides a separate `electromart_mvp_dev` schema. Local SMTP capture
+is optional and does not start by default. Provide local-only passwords in your shell; they are not supplied by the
 repository. A privileged migration/test connection is distinct from the runtime
 application user.
 
@@ -59,6 +60,7 @@ In a frontend terminal, use the locked install and explicit server-only settings
 
 ```powershell
 $env:STOREFRONT_MODE = 'live'
+$env:STOREFRONT_GUEST_ONLY = 'true'
 $env:API_BASE_URL = 'http://localhost:5249'
 $env:STOREFRONT_URL = 'http://localhost:3000'
 npm.cmd ci --registry=https://registry.npmjs.org/
@@ -71,10 +73,44 @@ are disabled. Production requires an explicit mode and valid configuration. Live
 failures never fall back to samples. Remove obsolete `NEXT_PUBLIC_API_BASE_URL` and
 `NEXT_PUBLIC_USE_MOCK_DATA` settings; browser bundles must not contain API origins.
 
-Mailpit is at `http://localhost:8025`, with SMTP on port 1025. All local recipient
+To test email later, start Mailpit explicitly with `docker compose --profile mail up -d --wait`.
+Its UI is at `http://localhost:8025`, with SMTP on port 1025. All local recipient
 addresses should be sample `example.com` addresses. Development OpenAPI and Scalar
 are available only in Development; `/health/database` reports reachability without
 revealing connection details.
+
+## Feature Switches
+
+The checked-in defaults use only the storefront, API and database:
+
+| Setting | Current default | Behavior |
+| --- | --- | --- |
+| API `Commerce__GuestOnly` | `true` | Guest-only checkout, one accepted order per guest identity, no customer accounts or tracking. |
+| Next.js `STOREFRONT_GUEST_ONLY` | `true` | Hide customer account navigation, disable customer pages/BFF routes and show a simple checkout receipt instead of tracking. |
+| API `Mail__Enabled` | `false` | Do not enqueue or send email; SMTP settings are not required. |
+| API `OwnerNotifications__Enabled` | `false` | Do not enqueue or send Telegram owner alerts; alerts are not a checkout prerequisite. |
+
+Guest identity uses the existing protected 30-day browser cookie. Clearing/expiring
+cookies or using another browser/device creates a new guest; this is not a verified
+one-order-per-person limit. The database serializes new acceptances for an owner
+using the existing receipt table. Cancelled and previously claimed guest orders
+still count. Exact original-key replay and receipt recovery remain available and do
+not create another order. No schema migration is needed for this limit.
+
+Guest-only receipts contain the immutable order number, creation time, items and
+totals, not current fulfillment/payment status or history. Contact email remains an
+order contact detail; it does not send a confirmation or tracking link. Staff still
+use `/admin` and the operator-provisioned login at `/account/login`. Existing account
+sessions must explicitly sign out before starting a new guest checkout.
+
+To restore customer accounts and tracking later, set API `Commerce__GuestOnly=false`
+and Next.js `STOREFRONT_GUEST_ONLY=false`, then restart both applications together.
+For IIS, change the matching value in the frontend `web.config` as well. Email must
+be explicitly enabled with `Mail__Enabled=true` and valid SMTP configuration before
+using registration or email-proof recovery. Telegram remains independently optional.
+Disabled email/alert workers perform database-only retention cleanup; disabling does
+not enqueue messages or backfill orders when an integration is re-enabled. Existing
+unexpired queued messages can resume if sending is re-enabled before they age out.
 
 ## Staff Provisioning
 
@@ -112,10 +148,12 @@ request. Logout revokes all current sessions; password reset invalidates old coo
   The API creates IDs, timestamps, ownership, line and contact/money snapshots.
   Exactly-once receipts, ordered row locks, conditional stock updates and bounded
   deadlock retries prevent overselling and same-key double acceptance.
+  Guest-only mode additionally rejects a second accepted order for the same guest.
 - `GET /Order/attempt/{key}` recovers an uncertain checkout under its original
   owner. Same-key exact replay resolves accepted attempts even after quote expiry.
   Changed key payloads are conflicts, not new orders. Browser recovery stores only
   quote/key/hash/source/item references, never contact details or credentials.
+  Guest-only acceptance and recovery return an immutable receipt, not tracking data.
 - New checkout requires usable Web Locks and a durably saved original-attempt
   reference. Denied storage reads/writes or rejected/unsupported locks refuse new
   submission; existing uncertain attempts retain original-key receipt/replay.
@@ -123,10 +161,10 @@ request. Logout revokes all current sessions; password reset invalidates old coo
   it before retrying. Degraded carts are visibly tab-only and never overwrite shared
   storage. Quantity edits invalidate quote review even when reversed.
 - When owner notifications are enabled, new acceptance atomically queues one
-  separately protected owner alert alongside stock/order/receipt/customer email.
+  separately protected owner alert alongside stock/order/receipt and optional customer email.
   Delivery happens after commit and never changes acceptance, stock or payment.
   Replay and original-key recovery do not enqueue another alert. Customer emails
-  retain private tracking capabilities; those credentials are never forwarded.
+  retain private tracking capabilities in the full customer-feature mode; those credentials are never forwarded.
 - Fulfillment is `Pending -> Confirmed -> Shipped -> Delivered`; cancellation is
   allowed only before shipment and restores stock once. Payment is separately
   `Unpaid -> Collected`, allowed once after delivery for the full immutable amount.
@@ -147,7 +185,7 @@ Admin policies. Cookies are HttpOnly, host-only, bounded, SameSite=Lax and Secur
 in production. Security tokens must be refreshed after identity changes. Expired
 account cookies cannot silently turn an uncertain account checkout into a guest.
 
-Guest order IDs and email addresses do not authorize access. The original protected
+When customer features are enabled, guest order IDs and email addresses do not authorize access. The original protected
 checkout owner may read its own order, or an emailed opaque fragment capability can
 be explicitly exchanged for a 30-minute per-order grant. Capability hashes are stored
 instead of raw tokens. Links are stripped from the address bar and kept in tab
@@ -155,7 +193,7 @@ memory; GET/mount never consumes them. Claim requires a matching verified accoun
 a fresh 20-minute one-use emailed proof and explicit confirmation. Claim revokes
 previous capabilities/grants and retains the original guest contact snapshot.
 
-Recovery emails use generic responses to avoid account/order enumeration. A
+When email is enabled, recovery emails use generic responses to avoid account/order enumeration. A
 certificate/ACL-protected Data Protection key ring protects queued email payloads.
 SMTP retries use leases, bounded attempts and cancellation; sent/exhausted payloads
 are scrubbed. Failed delivery does not undo an accepted order. Error responses use
@@ -193,10 +231,9 @@ runtime `getUpdates` polling, bot commands or public setup/send/status endpoints
 Do not provide these settings to Next.js or use `NEXT_PUBLIC_` variables. Disabled
 Development/CI sending does not enqueue alerts; enabling later never backfills old
 orders. Previously queued payloads still age out while sending is disabled.
-In Production, disabled notifications pause new quotes/acceptance through the
-existing generic maintenance response, even if `Commerce__CheckoutEnabled=true`.
-Browsing, staff access, private tracking and original-attempt reads remain available.
-The independent checkout deployment switch must still remain closed through promotion.
+Disabled notifications no longer pause checkout in Production. The independent
+`Commerce__CheckoutEnabled` deployment switch must still remain closed through
+promotion; original-attempt reads and staff access remain available while paused.
 An outage after configured acceptance instead queues protected retries; the customer
 receives the ordinary private receipt, not provider failure details.
 
@@ -264,16 +301,18 @@ Provide values through protected hosting settings, not checked-in JSON or packag
 | `Security__KeyPath` | Persistent absolute path outside deployment artifacts, restrictive ACL |
 | `Security__KeyCertificateThumbprint` | LocalMachine/My certificate with private-key access for the app identity |
 | `Security__TrustedProxies__0` etc. | Only verified proxy IPs, one forwarded hop |
-| `Mail__Host`, `Mail__Port`, `Mail__Sender` | Approved SMTP service/sender |
-| `Mail__EnableSsl` | `true` in production |
-| `Mail__Username`, `Mail__Password` | Protected SMTP secrets if required |
+| `Commerce__GuestOnly` | `true` for the current guest-only mode |
+| `Mail__Enabled` | `false` for the current database-only mode |
+| `Mail__Host`, `Mail__Port`, `Mail__Sender` | Approved SMTP service/sender only when email is enabled |
+| `Mail__EnableSsl` | `true` in production when email is enabled |
+| `Mail__Username`, `Mail__Password` | Protected SMTP secrets only when enabled and required |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
 | `Commerce__CheckoutEnabled` | Keep `false` through deployment and post-deploy checks; explicitly set `true` only when the operator reopens checkout |
-| `OwnerNotifications__Enabled` | `true` with approved private owner-alert processing; otherwise new Production checkout stays paused |
-| `Telegram__BotToken`, `Telegram__OwnerChatId` | Protected API-only dedicated bot token and verified positive private owner chat ID |
+| `OwnerNotifications__Enabled` | `false` currently; optionally enable with approved private owner-alert processing |
+| `Telegram__BotToken`, `Telegram__OwnerChatId` | Required only for enabled alerts: protected API-only bot token and verified positive private owner chat ID |
 
 Frontend requires `STOREFRONT_MODE=live`, server-only `API_BASE_URL` and canonical
-`STOREFRONT_URL`; remote HTTP URLs are rejected. Host-only cookies have no Domain
+`STOREFRONT_URL`; keep `STOREFRONT_GUEST_ONLY=true` for the current mode. Remote HTTP URLs are rejected. Host-only cookies have no Domain
 attribute. Production IIS requires the .NET10 Hosting Bundle, Node24 and
 HttpPlatformHandler support for standalone Next.js. Verify the host rather than
 assuming a legacy provider can run this stack.
@@ -283,15 +322,15 @@ assuming a legacy provider can run this stack.
 ```powershell
 dotnet build backend/ElectroApi.slnx
 $env:ELECTROMART_TEST_MYSQL = 'Server=127.0.0.1;Port=33084;User ID=root;Password=<local-root-password>;SslMode=Disabled;'
-$env:ELECTROMART_TEST_SMTP = '1'
-dotnet test backend/ElectroApi.slnx --collect:'XPlat Code Coverage' --logger trx
+dotnet test backend/ElectroApi.slnx --filter 'FullyQualifiedName!~Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload' --collect:'XPlat Code Coverage' --logger trx
 dotnet list backend/ElectroApi.slnx package --vulnerable --include-transitive
 ```
 
 Each real-provider test creates a fresh `electromart_test_*` schema on MySQL 8.4.
-SMTP tests require actual Mailpit on 1025/8025; a missing service is not evidence of
-a passing mail gate. Without the explicit MySQL connection integration tests are
-reported skipped, not validated.
+The default command excludes the optional SMTP capture test. To include it, start
+Mailpit, set `ELECTROMART_TEST_SMTP=1` and rerun without the filter. A missing SMTP
+service is not evidence of a passing mail gate. Without the explicit MySQL connection
+integration tests are reported skipped, not validated.
 Owner-alert unit tests and focused MySQL outbox tests use synthetic configuration and
 fake HTTP/senders. They do not authorize real messages. Enable local MySQL/SMTP
 readiness only when the documented services are actually available; skipped durable
@@ -309,9 +348,11 @@ npm.cmd audit --omit=dev
 npm.cmd audit
 ```
 
-Run npm commands from `frontend/` with explicit live settings and the test-service
-variables. E2E uses the actual production Next build, seeded API, MySQL and SMTP
-capture, on desktop and mobile. It does not run a dev server or substitute mocked
+Run npm commands from `frontend/` with explicit live settings and the MySQL test
+variable. Default E2E uses the actual production Next build, seeded API and MySQL,
+with email/Telegram disabled, on desktop and mobile. For the retained full customer
+journeys, start optional Mailpit and set `ELECTROMART_EXTENDED_FEATURES=1` and
+`ELECTROMART_TEST_SMTP=1` before `npm.cmd run test:e2e`. It does not run a dev server or substitute mocked
 checkout responses. Optional `E2E_TLS_CERT`/`E2E_TLS_KEY` provide trusted local TLS;
 never disable TLS verification to hide a certificate or hosting problem. Browser
 traces/video/screenshots are disabled to avoid capturing email proofs.
@@ -359,7 +400,7 @@ the same verified artifact pair, and must use a protected environment. No push,
 hosting change, production migration, credential rotation or deployment is authorized
 by an implementation/test run.
 
-Before promotion, the operator must confirm Node24/.NET10/MySQL8.4/TLS/SMTP support,
+Before promotion, the operator must confirm Node24/.NET10/MySQL8.4/TLS support (plus SMTP if enabled),
 key-store persistence/ACL/certificate access, environment protections, catalog and
 approved delivery/warranty/privacy/contact policies, backups and reviewed migration
 SQL. A MySQL production schema is not automatically reset or seeded. This initial
@@ -387,7 +428,7 @@ The packaged API defaults `Commerce:CheckoutEnabled` to `false`. A hosting-level
 `Commerce__CheckoutEnabled=true` overrides that file, so the operator must explicitly
 close checkout before promotion and keep it closed during verification. The pause
 rejects new quote and order-acceptance requests with a safe maintenance response;
-catalog browsing and existing private receipt/original-attempt reads remain available.
+catalog browsing, staff access and original-attempt receipt reads remain available.
 An uncertain checkout must recover its original attempt rather than create a new key.
 Promotion does not change protected hosting settings or reopen checkout automatically.
 

@@ -8,11 +8,12 @@ using ElectroApi.Core.Enums;
 using ElectroApi.Core.Interfaces;
 using ElectroApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using MySql.Data.MySqlClient;
 
 namespace ElectroApi.Infrastructure.Repositories;
 
-public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail mail, IOwnerOrderNotifications ownerNotifications) : ICommerceRepository
+public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail mail, IOwnerOrderNotifications ownerNotifications, IConfiguration configuration) : ICommerceRepository
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
@@ -35,6 +36,7 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
     private Task LockOrder(Guid id, CancellationToken ct) => db.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Orders WHERE Id = {id.ToString()} FOR UPDATE", ct);
     public async Task<QuoteResponse> Quote(CommerceOwner owner, QuoteRequest request, CancellationToken ct)
     {
+        CommerceRules.Require(!configuration.GetValue("Commerce:GuestOnly", true) || !owner.AccountId.HasValue, "guest_checkout_required", "Sign out of your account before checking out as a guest.", 409);
         CommerceRules.Require(request.Items is { Length: > 0 and <= 50 } && request.Items.All(i => i.ProductId != Guid.Empty && i.Quantity is >= 1 and <= 99), "invalid_quantity", "Choose between 1 and 99 units per product, with at most 50 lines.");
         var items = request.Items.GroupBy(i => i.ProductId).Select(g => new QuoteItem(g.Key, g.Sum(i => i.Quantity))).OrderBy(i => i.ProductId.ToString(), StringComparer.Ordinal).ToArray();
         CommerceRules.Require(items.All(i => i.Quantity <= 99), "invalid_quantity", "Duplicate lines exceed the allowed quantity.");
@@ -54,6 +56,7 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
     public Task<OrderDto> Accept(CommerceOwner owner, string key, AcceptOrderRequest request, CancellationToken ct) => Retry(() => AcceptOnce(owner, key, request, ct), ct);
     private async Task<OrderDto> AcceptOnce(CommerceOwner owner, string key, AcceptOrderRequest request, CancellationToken ct)
     {
+        var guestOnly = configuration.GetValue("Commerce:GuestOnly", true);
         var (contact, address) = CommerceRules.Contact(request, owner.Email);
         var notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
@@ -64,6 +67,14 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
             var existing = (await Find(accepted, ct))!;
             CommerceRules.Require(existing.AccountId == owner.AccountId && (owner.AccountId.HasValue || existing.CheckoutOwner == owner.Key), "not_found", "Order unavailable.", 404);
             await transaction.CommitAsync(ct); return Map(existing);
+        }
+        CommerceRules.Require(!guestOnly || !owner.AccountId.HasValue, "guest_checkout_required", "Sign out of your account before checking out as a guest.", 409);
+        CommandReceipt? quota = null;
+        if (guestOnly)
+        {
+            // A constant owner receipt serializes different quotes/keys before any stock effects.
+            quota = await Receipt(owner.Key, "guest-order-limit", "guest-order-limit", "one-order-per-guest-v1", ct);
+            CommerceRules.Require(quota.OrderId == null && !await db.Orders.AnyAsync(o => o.CheckoutOwner == owner.Key, ct), "guest_order_limit", "This guest checkout session has already placed its one permitted order.", 409);
         }
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Quotes WHERE Id = {request.QuoteId.ToString()} FOR UPDATE", ct);
         var quote = await db.Quotes.AsNoTracking().Include(q => q.Lines).SingleOrDefaultAsync(q => q.Id == request.QuoteId, ct) ?? throw new CommerceException(409, "quote_expired", "This quote is unavailable. Refresh the cart and request a new quote.");
@@ -88,17 +99,23 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
             CommerceRules.Require(affected == 1, "stock_unavailable", "Stock changed during checkout. Review a fresh quote.", 409);
         }
         var id = Guid.NewGuid();
-        var order = new Order { Id = id, Number = "EM-" + DateTime.UtcNow.ToString("yyyyMMdd") + "-" + id.ToString("N")[..12].ToUpperInvariant(), QuoteId = quote.Id, AccountId = owner.AccountId, CheckoutOwner = owner.Key, Contact = contact, NormalizedEmail = contact.Email.ToUpperInvariant(), DeliveryAddress = address, Money = money, Notes = notes, Lines = lines.Select((line, index) => new OrderLine { ProductId = line.ProductId, Name = products[line.ProductId].Name, Slug = products[line.ProductId].Slug, UnitPrice = line.UnitPrice, Quantity = line.Quantity, LineTotal = line.UnitPrice * line.Quantity, Position = index }).ToList(), Events = [new OrderEvent { Action = "Accepted", ActorId = owner.AccountId, Version = 1 }] };
+        // Match datetime(6) precision so the initial receipt and persisted recovery have the same timestamp.
+        var createdAt = new DateTime(DateTime.UtcNow.Ticks / 10 * 10, DateTimeKind.Utc);
+        var order = new Order { Id = id, Number = "EM-" + createdAt.ToString("yyyyMMdd") + "-" + id.ToString("N")[..12].ToUpperInvariant(), CreatedAt = createdAt, QuoteId = quote.Id, AccountId = owner.AccountId, CheckoutOwner = owner.Key, Contact = contact, NormalizedEmail = contact.Email.ToUpperInvariant(), DeliveryAddress = address, Money = money, Notes = notes, Lines = lines.Select((line, index) => new OrderLine { ProductId = line.ProductId, Name = products[line.ProductId].Name, Slug = products[line.ProductId].Slug, UnitPrice = line.UnitPrice, Quantity = line.Quantity, LineTotal = line.UnitPrice * line.Quantity, Position = index }).ToList(), Events = [new OrderEvent { Action = "Accepted", ActorId = owner.AccountId, Version = 1 }] };
         db.Orders.Add(order); receipt.OrderId = order.Id;
-        var body = $"Order received. We will contact you to confirm the order and payment.\nOrder {order.Number}. Accepted total BDT {order.Money.Total:0}. Payment status: Unpaid. No payment has been taken online.\n";
-        if (!owner.AccountId.HasValue)
+        if (quota is not null) quota.OrderId = order.Id;
+        if (!guestOnly && mail.Enabled)
         {
-            var capability = NewToken();
-            db.GuestCapabilities.Add(new() { OrderId = id, TokenHash = Hash(capability), ExpiresAt = DateTime.UtcNow.AddDays(30) });
-            body += "Track this order with the private link below. Do not share it. Open it and choose Unlock order:\n" + mail.Link("/orders/" + id, new Dictionary<string, string> { ["capability"] = capability });
+            var body = $"Order received. We will contact you to confirm the order and payment.\nOrder {order.Number}. Accepted total BDT {order.Money.Total:0}. Payment status: Unpaid. No payment has been taken online.\n";
+            if (!owner.AccountId.HasValue)
+            {
+                var capability = NewToken();
+                db.GuestCapabilities.Add(new() { OrderId = id, TokenHash = Hash(capability), ExpiresAt = DateTime.UtcNow.AddDays(30) });
+                body += "Track this order with the private link below. Do not share it. Open it and choose Unlock order:\n" + mail.Link("/orders/" + id, new Dictionary<string, string> { ["capability"] = capability });
+            }
+            else body += mail.Link("/account/orders/" + id, new Dictionary<string, string>());
+            db.EmailOutbox.Add(mail.Create(contact.Email, "ElectroMart order received", body));
         }
-        else body += mail.Link("/account/orders/" + id, new Dictionary<string, string>());
-        db.EmailOutbox.Add(mail.Create(contact.Email, "ElectroMart order received", body));
         if (ownerNotifications.Create(order) is { } notification) db.OwnerOrderNotifications.Add(notification);
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
         return Map(order);
@@ -168,7 +185,8 @@ public sealed class CommerceRepository(ApplicationDbContext db, ICommerceMail ma
         order.Version++;
         var audit = new OrderEvent { OrderId = id, ActorId = actor, Action = action, Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(), Version = order.Version };
         db.Add(audit); order.Events.Add(audit); receipt.OrderId = id;
-        db.EmailOutbox.Add(mail.Create(order.Contact.Email, "ElectroMart order update", $"Order {order.Number}: {action}. Total BDT {order.Money.Total:0}; payment {order.Payment}. Your accepted order totals have not changed."));
+        if (!configuration.GetValue("Commerce:GuestOnly", true) && mail.Enabled)
+            db.EmailOutbox.Add(mail.Create(order.Contact.Email, "ElectroMart order update", $"Order {order.Number}: {action}. Total BDT {order.Money.Total:0}; payment {order.Payment}. Your accepted order totals have not changed."));
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct); return Map(order, true);
     }
     private async Task<T> Retry<T>(Func<Task<T>> operation, CancellationToken ct)

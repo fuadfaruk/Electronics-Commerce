@@ -46,7 +46,7 @@ public sealed class CommerceHttpTests
     [MySqlFact]
     public async Task Guest_capability_exchange_scopes_access_and_verified_claim_revokes_all_guest_paths()
     {
-        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         using var guest = factory.Browser(); var order = await GuestOrder(factory, guest); var id = order.GetProperty("id").GetGuid();
         using var own = await guest.GetAsync("/api/v1/Order/" + id); await Data(own);
         using var attempt = await guest.GetAsync("/api/v1/Order/attempt/http-checkout-123456789"); Assert.Equal(id, (await Data(attempt)).GetProperty("id").GetGuid());
@@ -87,7 +87,7 @@ public sealed class CommerceHttpTests
     [MySqlFact]
     public async Task Admin_policy_is_enforced_for_direct_calls_and_stale_roles_and_unknown_user_input_is_safe()
     {
-        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         await CreateAccount(factory, "customer@example.com"); var adminId = await CreateAccount(factory, "admin@example.com", true);
         using var anonymous = factory.Browser(); using var anonymousAdmin = await anonymous.GetAsync("/api/v1/Admin/orders"); Assert.Equal(HttpStatusCode.Unauthorized, anonymousAdmin.StatusCode);
         using var customer = factory.Browser(); await Login(customer, "customer@example.com");
@@ -104,7 +104,7 @@ public sealed class CommerceHttpTests
     [MySqlFact]
     public async Task Account_checkout_uses_verified_email_and_lost_auth_never_falls_back_to_guest()
     {
-        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         await CreateAccount(factory, "account@example.com"); using var browser = factory.Browser(); await Login(browser, "account@example.com");
         var productId = Guid.Parse("00000000-0000-4000-8000-000000000013");
         using var quoteResponse = await CommerceApiFactory.Send(browser, "Checkout/quote", new { items = new[] { new { productId, quantity = 1 } } }); var quote = await Data(quoteResponse);
@@ -118,7 +118,7 @@ public sealed class CommerceHttpTests
     [MySqlFact]
     public async Task Claim_commit_before_waiting_guest_read_rechecks_current_ownership()
     {
-        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         using var guest = factory.Browser(); var order = await GuestOrder(factory, guest); var id = order.GetProperty("id").GetGuid();
         var accountId = await CreateAccount(factory, "owner@example.com");
         using var scope = factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

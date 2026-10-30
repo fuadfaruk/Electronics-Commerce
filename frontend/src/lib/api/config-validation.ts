@@ -2,6 +2,7 @@ import type { StorefrontMode } from "@/types/api";
 
 export interface StorefrontConfig {
   mode: StorefrontMode;
+  guestOnly: boolean;
   apiBaseUrl: string | null;
   storefrontOrigin: string;
 }
@@ -12,6 +13,10 @@ export function validateStorefrontConfig(env: Record<string, string | undefined>
   const mode = env.STOREFRONT_MODE ?? (production ? "" : "mock");
   if (mode !== "live" && mode !== "mock") {
     throw new Error("STOREFRONT_MODE must explicitly be live or mock. Mock is a separate read-only demo, not a live fallback.");
+  }
+  const guestOnly = env.STOREFRONT_GUEST_ONLY ?? "true";
+  if (guestOnly !== "true" && guestOnly !== "false") {
+    throw new Error("STOREFRONT_GUEST_ONLY must be true or false.");
   }
 
   function urlSetting(name: string, fallback?: string): URL {
@@ -34,6 +39,7 @@ export function validateStorefrontConfig(env: Record<string, string | undefined>
   const api = mode === "live" ? urlSetting("API_BASE_URL") : null;
   return {
     mode,
+    guestOnly: guestOnly === "true",
     apiBaseUrl: api ? api.href.replace(/\/+$/, "") : null,
     storefrontOrigin: storefront.origin,
   };

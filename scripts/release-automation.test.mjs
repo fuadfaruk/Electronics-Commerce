@@ -11,7 +11,7 @@ import os from "node:os";
 import { evaluateNpmAudit, checkNugetAudit, readNugetAudit } from "./audit-gate.mjs";
 import { captureNugetAudit } from "./capture-nuget-audit.mjs";
 import { findCaseCollisions } from "./check-case-paths.mjs";
-import { assertPortsAvailable, createE2eRunner, disableOwnerNotifications } from "./run-e2e.mjs";
+import { assertPortsAvailable, createE2eEnvironment, createE2eRunner, disableOwnerNotifications } from "./run-e2e.mjs";
 import { validateWorkflow } from "./validate-workflows.mjs";
 import { verifyEfTool } from "./verify-ef-tool.mjs";
 
@@ -314,6 +314,34 @@ test("CI requires actual browser tests, strict audit and framework-dependent Win
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|allowUntrusted/);
   assert.match(workflow, /frontend\/test-results\/\*\*/);
 });
+test("CI runs reduced E2E without SMTP before optional local capture and the extended regression profile", async () => {
+  const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
+  const job = workflow.jobs.checks;
+  assert.deepEqual(Object.keys(job.services), ["mysql"]);
+  assert.equal(job.env.ELECTROMART_TEST_SMTP, undefined);
+  assert.equal(job.env.STOREFRONT_GUEST_ONLY, "true");
+  const steps = job.steps;
+  const reduced = steps.findIndex((step) => step.name === "Guest-Only Production Stack E2E");
+  const capture = steps.findIndex((step) => step.name === "Start Optional Local SMTP Capture");
+  const smtp = steps.findIndex((step) => step.name === "Test Explicit SMTP Capture Integration");
+  const extended = steps.findIndex((step) => step.name === "Extended Production Stack E2E");
+  const cleanup = steps.findIndex((step) => step.name === "Stop Optional Local SMTP Capture");
+  assert.ok(reduced >= 0 && reduced < capture && capture < smtp && smtp < extended && extended < cleanup);
+  assert.equal(steps[reduced].run, "npm run test:e2e");
+  assert.deepEqual(steps[reduced].env, { ELECTROMART_EXTENDED_FEATURES: "0", ELECTROMART_TEST_SMTP: "0" });
+  assert.equal(steps[extended].run, "npm run test:e2e");
+  assert.equal(steps[extended].env.ELECTROMART_EXTENDED_FEATURES, "1");
+  assert.equal(steps[extended].env.ELECTROMART_TEST_SMTP, "1");
+  assert.match(steps[capture].run, /127\.0\.0\.1:1025:1025/);
+  assert.match(steps[capture].run, /127\.0\.0\.1:8025:8025/);
+  assert.match(steps[capture].run, /axllent\/mailpit:v1\.29\.0/);
+  assert.doesNotMatch(steps[capture].run, /SMTP_RELAY|TELEGRAM|BotToken|OwnerChatId/i);
+  const backend = steps.find((step) => step.name === "Test Backend Against MySQL Without SMTP");
+  assert.match(backend.run, /FullyQualifiedName!~Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload/);
+  assert.match(steps[smtp].run, /FullyQualifiedName~Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload/);
+  assert.equal(steps[smtp].env.ELECTROMART_TEST_SMTP, "1");
+  assert.equal(steps[cleanup].if, "always()");
+});
 test("CI uses the NuGet collector before the always-run strict gate and evidence upload", async () => {
   const workflow = yaml.load(await readFile(new URL("../.github/workflows/commerce-ci.yml", import.meta.url), "utf8"));
   const steps = workflow.jobs.checks.steps;
@@ -384,6 +412,7 @@ test("ordinary E2E removes inherited owner-alert secrets and disables real sendi
     OwnerNotifications__Enabled: "true", OWNERNOTIFICATIONS__ENABLED: "true",
     Telegram__BotToken: "synthetic-secret", TELEGRAM__BOTTOKEN: "synthetic-secret-uppercase",
     telegram__OwnerChatId: "123456789", Telegram__UnusedSecret: "synthetic-unused-secret",
+    "OwnerNotifications:Enabled": "true", "Telegram:BotToken": "synthetic-colon-secret",
   };
   const safe = disableOwnerNotifications(source);
   assert.deepEqual(safe, {
@@ -392,6 +421,107 @@ test("ordinary E2E removes inherited owner-alert secrets and disables real sendi
   });
   assert.equal(source.OwnerNotifications__Enabled, "true");
   assert.doesNotMatch(JSON.stringify(safe), /synthetic-secret|123456789/);
+});
+
+test("default E2E requires only isolated local MySQL and strips inherited SMTP settings and feature overrides", () => {
+  const source = {
+    PATH: "sample-tools", ELECTROMART_TEST_MYSQL: "Server=127.0.0.1;Database=never_use_existing;Initial Catalog=also_existing;User ID=sample;Password=disposable-only",
+    ELECTROMART_TEST_SMTP: "1", Mail__Host: "smtp.private.example", Mail__Password: "synthetic-mail-secret",
+    MAIL__ENABLED: "true", "Mail:Username": "synthetic-mail-user", Mail__UnusedCredential: "synthetic-mail-secret",
+    Commerce__GuestOnly: "false", COMMERCE__CHECKOUTENABLED: "false", "Commerce:GuestOnly": "false", storefront_guest_only: "false",
+    CONNECTIONSTRINGS__DEFAULTCONNECTION: "Server=remote.private.example;Database=never_use_existing", "ConnectionStrings:DefaultConnection": "synthetic-connection-override",
+    OwnerNotifications__Enabled: "true", Telegram__BotToken: "synthetic-owner-secret",
+  };
+  const safe = createE2eEnvironment(source);
+  assert.equal(safe.Commerce__GuestOnly, "true");
+  assert.equal(safe.Commerce__CheckoutEnabled, "true");
+  assert.equal(safe.STOREFRONT_GUEST_ONLY, "true");
+  assert.equal(safe.ELECTROMART_EXTENDED_FEATURES, "0");
+  assert.equal(safe.Mail__Enabled, "false");
+  assert.equal(safe.OwnerNotifications__Enabled, "false");
+  assert.equal(safe.ELECTROMART_TEST_SMTP, undefined);
+  assert.equal(safe.ELECTROMART_TEST_MYSQL, undefined);
+  assert.deepEqual(Object.keys(safe).filter((key) => /^Mail(?:__|:)/i.test(key)), ["Mail__Enabled"]);
+  assert.equal(safe.PATH, source.PATH);
+  assert.equal(safe.NODE_ENV, "production");
+  assert.equal(safe.STOREFRONT_URL, "http://localhost:3000");
+  assert.equal(safe.API_BASE_URL, "http://localhost:5249");
+  assert.doesNotMatch(JSON.stringify(safe), /synthetic-|smtp\.private|remote\.private|never_use_existing|also_existing/);
+  assert.match(safe.ConnectionStrings__DefaultConnection, /;Database=electromart_test_[a-f0-9]{32};$/);
+  assert.notEqual(safe.ConnectionStrings__DefaultConnection, createE2eEnvironment(source).ConnectionStrings__DefaultConnection);
+  assert.equal(source.Mail__Password, "synthetic-mail-secret");
+  assert.equal(createE2eEnvironment({ ELECTROMART_TEST_MYSQL: "Server=localhost" }).Mail__Enabled, "false");
+  for (const value of [undefined, "0", "true", "false", "2"]) {
+    assert.equal(createE2eEnvironment({ ELECTROMART_TEST_MYSQL: "Server=localhost", ELECTROMART_EXTENDED_FEATURES: value }).Commerce__GuestOnly, "true");
+  }
+});
+
+test("extended E2E is an explicit opt-in with credential-free local SMTP capture and no owner alerts", () => {
+  const source = {
+    ELECTROMART_TEST_MYSQL: "Host=mysql;User ID=sample;Password=disposable-only", ELECTROMART_EXTENDED_FEATURES: "1", ELECTROMART_TEST_SMTP: "1",
+    Mail__Host: "smtp.private.example", MAIL__PASSWORD: "synthetic-secret", "Mail:Username": "synthetic-user",
+    Telegram__BotToken: "synthetic-owner-secret", OwnerNotifications__Enabled: "true",
+  };
+  const safe = createE2eEnvironment(source);
+  assert.equal(safe.Commerce__GuestOnly, "false");
+  assert.equal(safe.STOREFRONT_GUEST_ONLY, "false");
+  assert.equal(safe.Mail__Enabled, "true");
+  assert.equal(safe.Mail__Host, "127.0.0.1");
+  assert.equal(safe.Mail__Port, "1025");
+  assert.equal(safe.Mail__EnableSsl, "false");
+  assert.equal(safe.Mail__Username, "");
+  assert.equal(safe.Mail__Password, "");
+  assert.equal(safe.OwnerNotifications__Enabled, "false");
+  assert.equal(safe.Telegram__BotToken, "");
+  assert.equal(safe.Telegram__OwnerChatId, "");
+  assert.doesNotMatch(JSON.stringify(safe), /synthetic-|smtp\.private/);
+  for (const readiness of [undefined, "0", "true"]) {
+    assert.throws(() => createE2eEnvironment({ ...source, ELECTROMART_TEST_SMTP: readiness }), /Extended E2E requires explicit local SMTP capture readiness/);
+  }
+});
+
+test("E2E refuses missing, nonlocal and ambiguous MySQL settings without exposing connection details", () => {
+  for (const connection of [undefined, "", "User ID=sample;Password=private-diagnostic", "Server=remote.private.example;Password=private-diagnostic",
+    "Server=localhost;Host=remote.private.example", "Server=localhost;Data Source=remote.private.example", "Server=localhost;Address=remote.private.example",
+    "Server=localhost;Addr=remote.private.example", "Server=localhost;Network Address=remote.private.example", "Server=localhost;Server=127.0.0.1", "Server=localhost,remote.private.example"]) {
+    assert.throws(() => createE2eEnvironment({ ELECTROMART_TEST_MYSQL: connection }), (error) => {
+      assert.match(error.message, /isolated local MySQL|nonlocal or ambiguous MySQL/);
+      assert.doesNotMatch(error.message, /remote\.private|private-diagnostic/);
+      return true;
+    });
+  }
+});
+
+test("E2E TLS remains explicit and paired in both feature profiles", () => {
+  for (const extended of ["0", "1"]) {
+    const source = { ELECTROMART_TEST_MYSQL: "Server=localhost", ELECTROMART_EXTENDED_FEATURES: extended, ELECTROMART_TEST_SMTP: "1" };
+    assert.throws(() => createE2eEnvironment({ ...source, E2E_TLS_CERT: "sample-cert" }), /requires both certificate and key/);
+    assert.throws(() => createE2eEnvironment({ ...source, E2E_TLS_KEY: "sample-key" }), /requires both certificate and key/);
+    const secure = createE2eEnvironment({ ...source, E2E_TLS_CERT: "sample-cert", E2E_TLS_KEY: "sample-key" });
+    assert.equal(secure.Security__DevelopmentHttps, "true");
+    assert.equal(secure.E2E_BASE_URL, "https://localhost:3443");
+    assert.equal(secure.API_BASE_URL, "https://localhost:7220");
+    assert.match(secure.NODE_OPTIONS, /e2e-ca\.cjs/);
+  }
+});
+
+test("Playwright selects only guest regressions by default and preserves both dormant journey files on opt-in", { timeout: 20000 }, async () => {
+  const frontend = fileURLToPath(new URL("../frontend/", import.meta.url));
+  for (const extended of ["0", "1"]) {
+    const { stdout } = await promisify(execFile)(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--list", "--reporter=list"], {
+      cwd: frontend, env: { ...process.env, ELECTROMART_EXTENDED_FEATURES: extended }, timeout: 9000,
+    });
+    assert.match(stdout, /\[desktop\]/);
+    assert.match(stdout, /\[mobile\]/);
+    if (extended === "1") {
+      assert.match(stdout, /commerce\.spec\.ts/);
+      assert.match(stdout, /recovery\.spec\.ts/);
+      assert.doesNotMatch(stdout, /guest-only\.spec\.ts/);
+    } else {
+      assert.match(stdout, /guest-only\.spec\.ts/);
+      assert.doesNotMatch(stdout, /commerce\.spec\.ts|recovery\.spec\.ts/);
+    }
+  }
 });
 
 test("spawn failures and nonzero subprocess exits settle without exposing diagnostics", { timeout: 6000 }, async (t) => {
@@ -517,5 +647,87 @@ test("IIS package checkout guard executes and accepts only an explicit false JSO
     env: { ...process.env, RELEASE_TEST_SCRIPT: script, RELEASE_TEST_DIRECTORY: directory }, timeout: 12000,
   });
   assert.equal(stdout.trim(), "Checkout package guard passed 10 cases.");
+  assert.equal(stderr, "");
+});
+
+test("IIS frontend environment guard permits only one optional literal guest-only boolean and the narrow runtime list", { timeout: 15000 }, async () => {
+  const script = fileURLToPath(new URL("./package-iis.ps1", import.meta.url));
+  assert.match(await readFile(script, "utf8"), /Assert-FrontendEnvironment \$platform/);
+  const command = `
+    Set-StrictMode -Version Latest
+    $ErrorActionPreference = 'Stop'
+    $tokens = $null
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:RELEASE_TEST_SCRIPT, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'Package guard script did not parse.' }
+    foreach ($name in @('Assert-FrontendEnvironment', 'Read-ReleaseXml')) {
+      $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+      if ($null -eq $function) { throw 'Package frontend environment guard is missing.' }
+      . ([scriptblock]::Create($function.Extent.Text))
+    }
+    $required = @{ PORT = '%HTTP_PLATFORM_PORT%'; HOSTNAME = '127.0.0.1'; NODE_ENV = 'production';
+      STOREFRONT_MODE = 'live'; API_BASE_URL = '%API_BASE_URL%'; STOREFRONT_URL = '%STOREFRONT_URL%' }
+    function New-TestPlatform {
+      $document = [Xml.XmlDocument]::new()
+      $document.LoadXml('<httpPlatform><environmentVariables /></httpPlatform>')
+      foreach ($name in $required.Keys) {
+        $variable = $document.CreateElement('environmentVariable')
+        $variable.SetAttribute('name', $name)
+        $variable.SetAttribute('value', $required[$name])
+        $document.DocumentElement.FirstChild.AppendChild($variable) | Out-Null
+      }
+      return ,$document.DocumentElement
+    }
+    $front = Read-ReleaseXml $env:RELEASE_TEST_FRONT_CONFIG
+    Assert-FrontendEnvironment ($front.SelectSingleNode('//httpPlatform'))
+    Assert-FrontendEnvironment (New-TestPlatform)
+    foreach ($value in @('true', 'false', '', 'True', 'FALSE', '0', '1', ' false ', '%STOREFRONT_GUEST_ONLY%', 'private-fixture-value')) {
+      $platform = New-TestPlatform
+      $variable = $platform.OwnerDocument.CreateElement('environmentVariable')
+      $variable.SetAttribute('name', 'STOREFRONT_GUEST_ONLY')
+      $variable.SetAttribute('value', $value)
+      $platform.FirstChild.AppendChild($variable) | Out-Null
+      $accepted = $false
+      try { Assert-FrontendEnvironment $platform; $accepted = $true }
+      catch {
+        if ($_.Exception.Message -cne 'Packaged STOREFRONT_GUEST_ONLY must be the boolean string true or false.') { throw 'Package boolean guard leaked an unsafe diagnostic.' }
+      }
+      if ($accepted -ne ($value -cin @('true', 'false'))) { throw 'Package frontend guard accepted an unsafe boolean or refused a literal boolean.' }
+    }
+    foreach ($mutation in @('missing-required', 'duplicate-required', 'duplicate-guest', 'unknown', 'lowercase-name', 'unsafe-required')) {
+      $platform = New-TestPlatform
+      $port = $platform.SelectSingleNode('environmentVariables/environmentVariable[@name="PORT"]')
+      switch ($mutation) {
+        'missing-required' { $platform.FirstChild.RemoveChild($port) | Out-Null }
+        'duplicate-required' { $platform.FirstChild.AppendChild($port.CloneNode($true)) | Out-Null }
+        'unsafe-required' { $port.SetAttribute('value', 'private-fixture-value') }
+        'lowercase-name' { $port.SetAttribute('name', 'port') }
+        'unknown' {
+          $variable = $port.CloneNode($true)
+          $variable.SetAttribute('name', 'Mail__Password')
+          $variable.SetAttribute('value', 'private-fixture-value')
+          $platform.FirstChild.AppendChild($variable) | Out-Null
+        }
+        'duplicate-guest' {
+          $variable = $port.CloneNode($true)
+          $variable.SetAttribute('name', 'STOREFRONT_GUEST_ONLY')
+          $variable.SetAttribute('value', 'true')
+          $platform.FirstChild.AppendChild($variable) | Out-Null
+          $platform.FirstChild.AppendChild($variable.CloneNode($true)) | Out-Null
+        }
+      }
+      $accepted = $false
+      try { Assert-FrontendEnvironment $platform; $accepted = $true }
+      catch {
+        if ($_.Exception.Message -cnotin @('Frontend IIS runtime environment is incomplete or unsafe.', 'Unexpected packaged frontend environment values.')) { throw 'Package frontend list guard leaked an unsafe diagnostic.' }
+      }
+      if ($accepted) { throw 'Package frontend guard accepted an unsafe runtime environment list.' }
+    }
+    'Frontend package environment guard passed 18 cases.'
+  `;
+  const { stdout, stderr } = await promisify(execFile)("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+    env: { ...process.env, RELEASE_TEST_SCRIPT: script, RELEASE_TEST_FRONT_CONFIG: fileURLToPath(new URL("../frontend/iis/web.config", import.meta.url)) }, timeout: 12000,
+  });
+  assert.equal(stdout.trim(), "Frontend package environment guard passed 18 cases.");
   assert.equal(stderr, "");
 });

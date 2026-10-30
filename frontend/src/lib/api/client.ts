@@ -7,7 +7,8 @@ import { responseJson } from "@/lib/api/response";
 import type { OwnerKind, StorefrontMode } from "@/types/api";
 
 async function request<T>(path: string, decode: (value: unknown) => T, init: RequestInit, query?: URLSearchParams): Promise<T> {
-  const route = commerceRoute(init.method ?? "GET", path.split("/"));
+  // Feature switches are server-only; the BFF, not browser validation, enforces them.
+  const route = commerceRoute(init.method ?? "GET", path.split("/"), false);
   if (!route) throw new ApiRequestError({ status: 404 });
   const params = allowQuery(query ?? new URLSearchParams(), route);
   let response: Response;

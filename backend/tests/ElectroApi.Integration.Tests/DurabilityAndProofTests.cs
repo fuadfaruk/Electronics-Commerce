@@ -34,14 +34,14 @@ public sealed class DurabilityAndProofTests
         {
             await setup.Database.MigrateAsync(); await DevelopmentSeed.Seed(setup);
             initialVersion = await setup.Products.Where(p => p.Id == id).Select(p => p.Version).SingleAsync();
-            quoteId = (await new CommerceRepository(setup, mail, notifications).Quote(owner, new([new(id, 1)]), default)).QuoteId;
+            quoteId = (await new CommerceRepository(setup, mail, notifications, OwnerNotificationTestSettings.Configuration()).Quote(owner, new([new(id, 1)]), default)).QuoteId;
         }
         var failure = new FailBeforeOrderSave();
         var failOptions = new DbContextOptionsBuilder<ApplicationDbContext>().UseMySQL(database.ConnectionString).AddInterceptors(failure).Options;
         await using (var db = new ApplicationDbContext(failOptions))
         {
             var request = new AcceptOrderRequest(quoteId, new() { Name = "Sample Customer", Email = "sample@example.com", Phone = "01712345678" }, new() { Street = "123 Sample Road", Area = "Sample Area", City = "Dhaka", District = "Dhaka" }, null);
-            await Assert.ThrowsAsync<InvalidOperationException>(() => new CommerceRepository(db, mail, notifications).Accept(owner, "rollback-key-123456789", request, default));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new CommerceRepository(db, mail, notifications, OwnerNotificationTestSettings.Configuration()).Accept(owner, "rollback-key-123456789", request, default));
         }
         Assert.True(failure.ReachedOrderSave); Assert.True(failure.ReachedNotificationSave); Assert.True(failure.ReachedMailAndCapabilitySave);
         await using var check = new ApplicationDbContext(options);
@@ -68,7 +68,7 @@ public sealed class DurabilityAndProofTests
         {
             await setup.Database.MigrateAsync(); await DevelopmentSeed.Seed(setup);
             initialVersion = await setup.Products.Where(product => product.Id == productId).Select(product => product.Version).SingleAsync();
-            quoteId = (await new CommerceRepository(setup, mail, notifications).Quote(owner, new([new(productId, 1)]), default)).QuoteId;
+            quoteId = (await new CommerceRepository(setup, mail, notifications, OwnerNotificationTestSettings.Configuration()).Quote(owner, new([new(productId, 1)]), default)).QuoteId;
         }
         var request = new AcceptOrderRequest(quoteId, new() { Name = "Sample Customer", Email = "sample@example.com", Phone = "01712345678" }, new() { Street = "123 Sample Road", Area = "Sample Area", City = "Dhaka", District = "Dhaka", Postcode = "1205" }, "Synthetic delivery notes");
         const string key = "notification-rollback-123456789";
@@ -77,7 +77,7 @@ public sealed class DurabilityAndProofTests
         if (databaseConstraint) failingOptions.AddInterceptors(invalidProgress);
         await using (var failed = new ApplicationDbContext(failingOptions.Options))
         {
-            var commerce = new CommerceRepository(failed, mail, databaseConstraint ? notifications : failingEnqueuer);
+            var commerce = new CommerceRepository(failed, mail, databaseConstraint ? notifications : failingEnqueuer, OwnerNotificationTestSettings.Configuration());
             if (databaseConstraint)
             {
                 var exception = await Assert.ThrowsAsync<DbUpdateException>(() => commerce.Accept(owner, key, request, default));
@@ -95,7 +95,7 @@ public sealed class DurabilityAndProofTests
         Assert.Equal(0, await check.Orders.CountAsync()); Assert.Equal(0, await check.Set<OrderEvent>().CountAsync()); Assert.Equal(0, await check.CommandReceipts.CountAsync());
         Assert.Equal(0, await check.EmailOutbox.CountAsync()); Assert.Equal(0, await check.GuestCapabilities.CountAsync()); Assert.Equal(0, await check.OwnerOrderNotifications.CountAsync());
         Assert.Equal(1, await check.Quotes.CountAsync());
-        var recovered = await new CommerceRepository(check, mail, notifications).Accept(owner, key, request, default);
+        var recovered = await new CommerceRepository(check, mail, notifications, OwnerNotificationTestSettings.Configuration()).Accept(owner, key, request, default);
         Assert.Equal(recovered.Id, (await check.OwnerOrderNotifications.SingleAsync()).OrderId);
         Assert.Equal(1, await check.Orders.CountAsync()); Assert.Equal(1, await check.EmailOutbox.CountAsync()); Assert.Equal(1, await check.GuestCapabilities.CountAsync()); Assert.Equal(1, await check.CommandReceipts.CountAsync());
         Assert.Equal(49, await check.Products.Where(product => product.Id == productId).Select(product => product.Stock).SingleAsync());
@@ -114,7 +114,7 @@ public sealed class DurabilityAndProofTests
         AcceptOrderRequest request; OwnerOrderNotification original; OwnerNotificationPayload payload; Guid orderId;
         await using (var db = new ApplicationDbContext(options))
         {
-            await db.Database.MigrateAsync(); await DevelopmentSeed.Seed(db); var commerce = new CommerceRepository(db, mail, notifications);
+            await db.Database.MigrateAsync(); await DevelopmentSeed.Seed(db); var commerce = new CommerceRepository(db, mail, notifications, configuration);
             var quote = await commerce.Quote(owner, new([new(Guid.Parse("00000000-0000-4000-8000-000000000013"), 1)]), default);
             request = new(quote.QuoteId, new() { Name = "Sample Customer", Email = "sample@example.com", Phone = "01712345678" }, new() { Street = "123 Sample Road", Area = "Sample Area", City = "Dhaka", District = "Dhaka", Postcode = "1205" }, "Synthetic delivery notes");
             await commerce.Accept(owner, key, request, default); // Discard the accepted response, then recover in another context.
@@ -140,7 +140,7 @@ public sealed class DurabilityAndProofTests
         var unchanged = restartedBuilder.Read(original.ProtectedPayload); Assert.Equal(payload.ChatId, unchanged.ChatId); Assert.Equal(payload.Parts, unchanged.Parts);
         await using var restarted = new ApplicationDbContext(options);
         await restarted.Quotes.Where(quote => quote.Id == request.QuoteId).ExecuteUpdateAsync(setters => setters.SetProperty(quote => quote.ExpiresAt, DateTime.UtcNow.AddHours(-1)));
-        var recovery = new CommerceRepository(restarted, mail, restartedBuilder);
+        var recovery = new CommerceRepository(restarted, mail, restartedBuilder, configuration);
         var recovered = await recovery.Attempt(owner.Key, key, default); Assert.NotNull(recovered); Assert.Equal(orderId, recovered.Id);
         var replay = await recovery.Accept(owner, key, request, default); Assert.Equal(orderId, replay.Id);
         Assert.NotNull(await recovery.Find(orderId, default)); Assert.Null(await recovery.Attempt("g:" + CommerceRepository.Hash("stranger"), key, default));
@@ -163,7 +163,7 @@ public sealed class DurabilityAndProofTests
         Assert.Equal(new[] { initial }, await db.Database.GetAppliedMigrationsAsync());
         var configuration = OwnerNotificationTestSettings.Configuration(enabled: false); var protection = new EphemeralDataProtectionProvider();
         var mail = new CommerceMail(protection, configuration); var disabled = new OwnerOrderNotifications(protection, OwnerNotificationSettings.Read(configuration), configuration);
-        var commerce = new CommerceRepository(db, mail, disabled); var owner = new CommerceOwner("g:" + CommerceRepository.Hash("historical-order"), null, null);
+        var commerce = new CommerceRepository(db, mail, disabled, configuration); var owner = new CommerceOwner("g:" + CommerceRepository.Hash("historical-order"), null, null);
         const string key = "historical-order-key-123456789";
         var productId = Guid.Parse("00000000-0000-4000-8000-000000000013");
         var quote = await commerce.Quote(owner, new([new(productId, 1)]), default);
@@ -187,7 +187,7 @@ public sealed class DurabilityAndProofTests
         Assert.Equal(beforeReceipt, JsonSerializer.Serialize(await db.CommandReceipts.AsNoTracking().SingleAsync()));
         Assert.Equal(beforeQuote, JsonSerializer.Serialize(await db.Quotes.AsNoTracking().Include(value => value.Lines).SingleAsync()));
         Assert.Equal(8, await db.Categories.CountAsync()); Assert.Equal(17, await db.Products.CountAsync()); Assert.Equal(1, await db.Orders.CountAsync());
-        var enabled = new CommerceRepository(db, mail, OwnerNotificationTestSettings.Builder(protection));
+        var enabled = new CommerceRepository(db, mail, OwnerNotificationTestSettings.Builder(protection), OwnerNotificationTestSettings.Configuration());
         Assert.Equal(historical.Id, (await enabled.Accept(owner, key, request, default)).Id); Assert.Equal(0, await db.OwnerOrderNotifications.CountAsync());
         var newOwner = new CommerceOwner("g:" + CommerceRepository.Hash("post-migration-order"), null, null);
         var newQuote = await enabled.Quote(newOwner, new([new(productId, 1)]), default);
@@ -199,7 +199,7 @@ public sealed class DurabilityAndProofTests
     [MySqlFact]
     public async Task Expired_guest_capability_and_scoped_grant_never_authorize_private_order()
     {
-        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "proof_keys_" + Guid.NewGuid().ToString("N"))); await factory.InitializeDatabase();
+        await using var database = await IsolatedDatabase.Create(); await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "proof_keys_" + Guid.NewGuid().ToString("N")), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         Guid orderId; var capability = CommerceRepository.NewToken(); var grant = CommerceRepository.NewToken();
         using (var scope = factory.Services.CreateScope())
         {

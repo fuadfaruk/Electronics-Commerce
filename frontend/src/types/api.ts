@@ -131,18 +131,22 @@ export const FULFILLMENT_STATES = [
 export type Fulfillment = (typeof FULFILLMENT_STATES)[number];
 export type Payment = "Unpaid" | "Collected";
 
-export interface OrderDto {
+/** Immutable acceptance receipt, without fulfillment or payment tracking. */
+export interface OrderReceiptDto {
   id: string;
   number: string;
   createdAt: string;
+  money: MoneyDto;
+  lines: OrderLineDto[];
+}
+
+export interface OrderDto extends OrderReceiptDto {
   fulfillment: Fulfillment;
   payment: Payment;
   version: number;
   contact: ContactDto;
   deliveryAddress: DeliveryAddressDto;
-  money: MoneyDto;
   notes: string | null;
-  lines: OrderLineDto[];
   events: {
     action: string;
     createdAt: string;

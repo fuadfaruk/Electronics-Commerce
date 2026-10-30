@@ -12,7 +12,7 @@ import {
 import { formatBDT } from "@/lib/money";
 
 export default async function HomePage() {
-  const { mode } = getStorefrontConfig();
+  const { mode, guestOnly } = getStorefrontConfig();
   const catalog = await getApiResult(() =>
     Promise.all([
       getHomeCollections(),
@@ -25,7 +25,7 @@ export default async function HomePage() {
       <section className="space-y-4">
         <div className="space-y-2">
           <p className="bench-strip">
-            {mode === "mock" ? "Sample catalog / checkout disabled" : "Live catalog / private order tracking"}
+            {mode === "mock" ? "Sample catalog / checkout disabled" : guestOnly ? "Live catalog / guest checkout" : "Live catalog / private order tracking"}
           </p>
           <h1 className="text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
             Gadgets and parts, delivered across Bangladesh

@@ -3,19 +3,62 @@ using System.Text.Json;
 using ElectroApi.Core.Entities;
 using ElectroApi.Core.Interfaces;
 using ElectroApi.Infrastructure.Data;
+using ElectroApi.Infrastructure.Mail;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ElectroApi.Integration.Tests;
 
 public sealed class MailOutboxTests
 {
     [MySqlFact]
+    public async Task Disabled_mail_never_claims_or_sends_with_credentials_but_retention_scrubs_old_and_exhausted_payloads()
+    {
+        await using var database = await IsolatedDatabase.Create();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Mail:Enabled"] = "true", ["Mail:Host"] = "127.0.0.1", ["Mail:Port"] = "1", ["Mail:Sender"] = "sender@example.com",
+            ["Mail:Username"] = "synthetic-user", ["Mail:Password"] = "synthetic-password"
+        }).Build();
+        var services = new ServiceCollection(); services.AddSingleton<IConfiguration>(configuration);
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider()); services.AddScoped<CommerceMail>();
+        services.AddDbContext<ApplicationDbContext>(options => options.UseMySQL(database.ConnectionString));
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        Guid freshId; Guid expiredId; Guid exhaustedId; Guid leasedId; string freshPayload; string leasedPayload;
+        using (var scope = provider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(); await db.Database.MigrateAsync();
+            var mail = scope.ServiceProvider.GetRequiredService<CommerceMail>();
+            var fresh = mail.Create("sample@example.com", "Historical mail", "Protected pending payload"); freshId = fresh.Id; freshPayload = fresh.ProtectedPayload;
+            var expired = mail.Create("sample@example.com", "Historical mail", "Protected expired payload"); expired.CreatedAt = DateTime.UtcNow.AddDays(-2); expired.NextAttemptAt = DateTime.UtcNow.AddHours(1); expiredId = expired.Id;
+            var exhausted = mail.Create("sample@example.com", "Historical mail", "Protected exhausted payload"); exhausted.Attempts = 10; exhaustedId = exhausted.Id;
+            var leased = mail.Create("sample@example.com", "Historical mail", "Protected leased payload"); leased.CreatedAt = DateTime.UtcNow.AddDays(-2); leased.Attempts = 2; leased.LeaseUntil = DateTime.UtcNow.AddMinutes(10); leasedId = leased.Id; leasedPayload = leased.ProtectedPayload;
+            db.EmailOutbox.AddRange(fresh, expired, exhausted, leased); await db.SaveChangesAsync();
+        }
+        configuration["Mail:Enabled"] = "false";
+        using var worker = new MailOutboxWorker(provider.GetRequiredService<IServiceScopeFactory>(), configuration, NullLogger<MailOutboxWorker>.Instance);
+        await worker.ProcessOnce(default); await worker.ProcessOnce(default);
+        using var checkScope = provider.CreateScope(); var check = checkScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var rows = await check.EmailOutbox.AsNoTracking().ToDictionaryAsync(e => e.Id);
+        Assert.Equal(freshPayload, rows[freshId].ProtectedPayload); Assert.Equal(0, rows[freshId].Attempts); Assert.Null(rows[freshId].LeaseUntil); Assert.Null(rows[freshId].SentAt);
+        foreach (var id in new[] { expiredId, exhaustedId }) { Assert.Equal("", rows[id].ProtectedPayload); Assert.Equal(10, rows[id].Attempts); Assert.Null(rows[id].LeaseUntil); Assert.Null(rows[id].SentAt); }
+        Assert.Equal(leasedPayload, rows[leasedId].ProtectedPayload); Assert.Equal(2, rows[leasedId].Attempts); Assert.NotNull(rows[leasedId].LeaseUntil); Assert.Null(rows[leasedId].SentAt);
+        await check.EmailOutbox.Where(e => e.Id == leasedId).ExecuteUpdateAsync(s => s.SetProperty(e => e.LeaseUntil, DateTime.UtcNow.AddMinutes(-1)));
+        await worker.ProcessOnce(default);
+        var scrubbed = await check.EmailOutbox.AsNoTracking().SingleAsync(e => e.Id == leasedId);
+        Assert.Equal("", scrubbed.ProtectedPayload); Assert.Equal(10, scrubbed.Attempts); Assert.Null(scrubbed.LeaseUntil); Assert.Null(scrubbed.SentAt);
+        Assert.Equal(0, await check.EmailOutbox.Where(e => e.Id == freshId).Select(e => e.Attempts).SingleAsync());
+    }
+
+    [MySqlFact]
     public async Task Protected_outbox_delivers_through_real_local_SMTP_capture_and_scrubs_sent_payload()
     {
         if (Environment.GetEnvironmentVariable("ELECTROMART_TEST_SMTP") != "1") throw new InvalidOperationException("This SMTP gate requires local Mailpit on 1025/8025; set ELECTROMART_TEST_SMTP=1 when explicitly ready.");
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_keys_" + Guid.NewGuid().ToString("N")), true);
+        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_keys_" + Guid.NewGuid().ToString("N")), true, overrides: CommerceApiFactory.FullFeatures);
         await factory.InitializeDatabase();
         Guid id; var recipient = "sample-" + Guid.NewGuid().ToString("N") + "@example.com";
         using (var scope = factory.Services.CreateScope())
@@ -40,7 +83,7 @@ public sealed class MailOutboxTests
     public async Task Failed_SMTP_does_not_roll_back_accepted_order_and_is_bounded_with_protected_retry()
     {
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_failure_keys_" + Guid.NewGuid().ToString("N")), true, overrides: new Dictionary<string, string?> { ["Mail:Port"] = "1" });
+        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_failure_keys_" + Guid.NewGuid().ToString("N")), true, overrides: new Dictionary<string, string?>(CommerceApiFactory.FullFeatures) { ["Mail:Port"] = "1" });
         await factory.InitializeDatabase(); Guid id;
         using (var scope = factory.Services.CreateScope())
         {
@@ -68,7 +111,7 @@ public sealed class MailOutboxTests
     public async Task Exhausted_and_expired_mail_payloads_are_scrubbed_and_never_retried()
     {
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_exhausted_keys_" + Guid.NewGuid().ToString("N")), true, overrides: new Dictionary<string, string?> { ["Mail:Port"] = "1" });
+        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "mail_exhausted_keys_" + Guid.NewGuid().ToString("N")), true, overrides: new Dictionary<string, string?>(CommerceApiFactory.FullFeatures) { ["Mail:Port"] = "1" });
         await factory.InitializeDatabase(); Guid exhaustedId; Guid expiredId;
         using (var scope = factory.Services.CreateScope())
         {

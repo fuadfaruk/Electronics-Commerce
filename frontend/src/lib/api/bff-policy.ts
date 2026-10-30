@@ -2,7 +2,7 @@ import { ApiRequestError } from "@/lib/api/errors";
 import { GUID_PATTERN, SLUG_PATTERN } from "@/lib/api/decoders";
 
 export type ResponseKind = "catalog" | "productDetail" | "home" | "categories" | "category" |
-  "product" | "stock" | "account" | "csrf" | "quote" | "order" | "orders" | "message" | "empty";
+  "product" | "stock" | "account" | "csrf" | "quote" | "receipt" | "order" | "orders" | "message" | "empty";
 
 export interface CommerceRoute {
   path: string;
@@ -14,9 +14,11 @@ export interface CommerceRoute {
 const CATALOG_QUERY = ["q", "category", "brand", "min", "max", "stock", "sort", "page", "pageSize"];
 const UUID = GUID_PATTERN;
 
-export function commerceRoute(method: string, segments: string[]): CommerceRoute | null {
+export function commerceRoute(method: string, segments: string[], guestOnly = true): CommerceRoute | null {
   if (!segments.length || segments.length > 4 || segments.some((s) => !/^[A-Za-z0-9-]{1,160}$/.test(s))) return null;
   const path = segments.join("/");
+  if (guestOnly && (segments[0] === "Account" || segments[0] === "Guest" ||
+    (segments[0] === "Auth" && !["Auth/login", "Auth/logout", "Auth/me"].includes(path)))) return null;
   const route = (kind: ResponseKind, queryKeys: readonly string[] = [], mockRead = false) => ({ path, kind, queryKeys, mockRead });
 
   if (method === "GET") {
@@ -30,10 +32,8 @@ export function commerceRoute(method: string, segments: string[]): CommerceRoute
     if (segments.length === 3 && segments[0] === "Category" && segments[1] === "by-slug" && SLUG_PATTERN.test(segments[2])) return route("category", [], true);
     if (path === "Security/csrf") return route("csrf");
     if (path === "Auth/me") return route("account");
-    if (segments[0] === "Order" && (
-      (segments.length === 2 && UUID.test(segments[1])) ||
-      (segments.length === 3 && segments[1] === "attempt" && UUID.test(segments[2]))
-    )) return route("order");
+    if (segments[0] === "Order" && segments.length === 3 && segments[1] === "attempt" && UUID.test(segments[2])) return route(guestOnly ? "receipt" : "order");
+    if (!guestOnly && segments[0] === "Order" && segments.length === 2 && UUID.test(segments[1])) return route("order");
     if (path === "Account/orders") return route("orders", ["page", "pageSize"]);
     if (segments.length === 3 && segments[0] === "Account" && segments[1] === "orders" && UUID.test(segments[2])) return route("order");
     if (path === "Admin/categories") return route("categories");
@@ -46,7 +46,7 @@ export function commerceRoute(method: string, segments: string[]): CommerceRoute
   }
   if (method === "POST") {
     if (path === "Checkout/quote") return route("quote");
-    if (path === "Order") return route("order");
+    if (path === "Order") return route(guestOnly ? "receipt" : "order");
     if (path === "Auth/login") return route("account");
     if (path === "Account/order-claims/complete") return route("order");
     if (["Auth/register", "Auth/logout", "Auth/verify", "Auth/resend", "Auth/forgot", "Auth/reset", "Guest/exchange", "Account/order-claims/request"].includes(path)) return route("message");

@@ -11,7 +11,7 @@ import { ApiRequestError, safeProblem } from "@/lib/api/errors";
 import { readAttempt } from "@/lib/checkout/attempt";
 import type { ApiProblem, StorefrontMode } from "@/types/api";
 
-export function LogoutButton({ mode, accountId }: { mode: StorefrontMode; accountId?: string }) {
+export function LogoutButton({ mode, accountId, redirectTo = "/account/login" }: { mode: StorefrontMode; accountId?: string; redirectTo?: "/account/login" | "/checkout" }) {
   const router = useRouter();
   const lock = useRef(false);
   const [pending, setPending] = useState(false);
@@ -23,7 +23,7 @@ export function LogoutButton({ mode, accountId }: { mode: StorefrontMode; accoun
     lock.current = true; setPending(true); setProblem(null);
     try {
       await commerceMutation("Auth/logout", {}, parseMessage, { mode, expectedAccountId: accountId });
-      router.replace("/account/login"); router.refresh();
+      router.replace(redirectTo); router.refresh();
     } catch (error) { setProblem(error instanceof ApiRequestError ? error.problem : safeProblem(503)); }
     finally { lock.current = false; setPending(false); }
   };

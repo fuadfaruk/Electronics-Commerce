@@ -69,6 +69,7 @@ public sealed record OrderLineDto(Guid ProductId, string Name, string Slug, int 
 public sealed record OrderEventDto(string Action, DateTime CreatedAt, string? Note, Guid? ActorId, long Version);
 public sealed record OrderSummary(Guid Id, string Number, DateTime CreatedAt, OrderStatus Fulfillment, PaymentStatus Payment, decimal Total, long Version);
 public sealed record OrderDto(Guid Id, string Number, DateTime CreatedAt, OrderStatus Fulfillment, PaymentStatus Payment, long Version, ContactSnapshot Contact, AddressSnapshot DeliveryAddress, MoneySnapshot Money, string? Notes, OrderLineDto[] Lines, OrderEventDto[] Events);
+public sealed record OrderReceiptDto(Guid Id, string Number, DateTime CreatedAt, MoneySnapshot Money, OrderLineDto[] Lines);
 public sealed record GuestExchange(Guid OrderId, [Required, StringLength(100)] string Capability);
 public sealed record ClaimRequest(Guid OrderId);
 public sealed record ClaimComplete(Guid ClaimId, [Required, StringLength(100)] string Proof);

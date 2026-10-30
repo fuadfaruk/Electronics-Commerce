@@ -1,4 +1,4 @@
-import { parseAccount, parseCategories, parseCategory, parseCatalogPage, parseCsrf, parseHome, parseMessage, parseOrder, parsePagedOrders, parseProduct, parseProductDetail, parseQuote, parseStock } from "@/lib/api/decoders";
+import { parseAccount, parseCategories, parseCategory, parseCatalogPage, parseCsrf, parseHome, parseMessage, parseOrder, parseOrderReceipt, parsePagedOrders, parseProduct, parseProductDetail, parseQuote, parseStock } from "@/lib/api/decoders";
 import { ApiRequestError, readBoundedText } from "@/lib/api/errors";
 import type { ResponseKind } from "@/lib/api/bff-policy";
 import type { StorefrontMode } from "@/types/api";
@@ -15,6 +15,7 @@ export function decodeCommerce(kind: ResponseKind, value: unknown, mode: Storefr
     case "account": return parseAccount(value);
     case "csrf": return parseCsrf(value);
     case "quote": return parseQuote(value);
+    case "receipt": return parseOrderReceipt(value);
     case "order": return parseOrder(value);
     case "orders": return parsePagedOrders(value);
     case "message": return parseMessage(value);

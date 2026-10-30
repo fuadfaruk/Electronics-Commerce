@@ -568,6 +568,7 @@ internal static class OwnerNotificationTestSettings
     public const string BotToken = "1234567890:synthetic_owner_notification_token_123456789";
     public static IConfigurationRoot Configuration(bool enabled = true) => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
     {
+        ["Commerce:GuestOnly"] = "false", ["Mail:Enabled"] = "true",
         ["OwnerNotifications:Enabled"] = enabled.ToString(), ["Telegram:BotToken"] = BotToken,
         ["Telegram:OwnerChatId"] = ChatId.ToString(CultureInfo.InvariantCulture), ["Storefront:Origin"] = CommerceApiFactory.Origin
     }).Build();

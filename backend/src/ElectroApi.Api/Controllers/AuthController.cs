@@ -16,7 +16,7 @@ using MySql.Data.MySqlClient;
 namespace ElectroApi.Api.Controllers;
 
 [ApiController, AllowAnonymous, Route("api/v1/Auth")]
-public sealed class AuthController(UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn, ApplicationDbContext db, ICommerceMail mail, CommerceSecurity security) : ControllerBase
+public sealed class AuthController(UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn, ApplicationDbContext db, ICommerceMail mail, CommerceSecurity security, IConfiguration configuration) : ControllerBase
 {
     private static object Generic => new { message = "If this address is eligible, an email has been queued with the next steps." };
     private async Task Verification(ApplicationUser user)
@@ -48,10 +48,12 @@ public sealed class AuthController(UserManager<ApplicationUser> users, SignInMan
     public async Task<IActionResult> Login(LoginRequest request)
     {
         var user = await users.FindByEmailAsync(request.Email.Trim());
-        if (user is null || !user.IsActive) throw new CommerceException(401, "authentication_required", "Sign-in failed. Check your credentials and verify your email.");
+        if (user is not { IsActive: true, EmailConfirmed: true }) throw new CommerceException(401, "authentication_required", "Sign-in failed. Check your credentials and verify your email.");
+        var admin = await users.IsInRoleAsync(user, "Admin");
+        if (configuration.GetValue("Commerce:GuestOnly", true) && !admin) throw new CommerceException(401, "authentication_required", "Sign-in failed. Check your credentials and verify your email.");
         var result = await signIn.PasswordSignInAsync(user, request.Password, true, true);
         if (!result.Succeeded) throw new CommerceException(401, "authentication_required", "Sign-in failed. Check your credentials and verify your email.");
-        return Ok(CommerceSecurity.Account(user, await users.IsInRoleAsync(user, "Admin")));
+        return Ok(CommerceSecurity.Account(user, admin));
     }
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()

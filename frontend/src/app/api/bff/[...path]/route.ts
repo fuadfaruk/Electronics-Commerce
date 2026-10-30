@@ -18,7 +18,7 @@ async function handle(request: Request, ctx: RouteContext<"/api/bff/[...path]">)
     const config = getStorefrontConfig();
     checkSameOrigin(request, config.storefrontOrigin);
     const { path } = await ctx.params;
-    const route = commerceRoute(request.method, path);
+    const route = commerceRoute(request.method, path, config.guestOnly);
     if (!route) return Response.json(safeProblem(404), { status: 404, headers: RESPONSE_HEADERS });
     const query = allowQuery(new URL(request.url).searchParams, route);
     if (config.mode === "mock") {

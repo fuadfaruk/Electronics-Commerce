@@ -1,13 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const extended = process.env.ELECTROMART_EXTENDED_FEATURES === "1";
+const profile = extended ? "extended" : "guest-only";
+
 export default defineConfig({
   testDir: "./e2e",
-  outputDir: "./test-results/playwright-artifacts",
+  testMatch: extended ? ["**/commerce.spec.ts", "**/recovery.spec.ts"] : "**/guest-only.spec.ts",
+  outputDir: `./test-results/playwright-artifacts/${profile}`,
   fullyParallel: false,
   workers: 1,
   timeout: 120_000,
   expect: { timeout: 10_000 },
-  reporter: [["list"], ["html", { open: "never" }], ["junit", { outputFile: "test-results/playwright.xml" }]],
+  reporter: [["list"], ["html", { open: "never", outputFolder: `playwright-report/${profile}` }], ["junit", { outputFile: `test-results/playwright-${profile}.xml` }]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     ignoreHTTPSErrors: false,

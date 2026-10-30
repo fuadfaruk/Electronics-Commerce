@@ -908,6 +908,7 @@ public sealed class OwnerNotificationTests(ITestOutputHelper output)
 
     private static IConfigurationRoot Configuration(string? enabled = "true", string? token = BotToken, string? chat = "4294967296") => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
     {
+        ["Mail:Enabled"] = "true",
         ["OwnerNotifications:Enabled"] = enabled,
         ["Telegram:BotToken"] = token,
         ["Telegram:OwnerChatId"] = chat,

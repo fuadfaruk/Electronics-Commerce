@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AccountAccess } from "@/components/account/account-access";
 import { ClaimRequest } from "@/components/account/claim-request";
 import { orderDate } from "@/components/orders/order-receipt";
 import { ErrorNotice } from "@/components/ui/error-notice";
 import { getAccount } from "@/lib/account/server";
+import { getStorefrontConfig } from "@/lib/api/config";
 import { parsePagedOrders } from "@/lib/api/decoders";
 import { getApiResult } from "@/lib/api/errors";
 import { serverGet } from "@/lib/api/server";
@@ -11,6 +13,7 @@ import { formatBDT } from "@/lib/money";
 
 export const metadata = { title: "Order History" };
 export default async function OrdersPage({ searchParams }: PageProps<"/account/orders">) {
+  if (getStorefrontConfig().guestOnly) notFound();
   const account = await getAccount();
   if (!account || !account.ok) return <AccountAccess mock={!account} problem={account && !account.ok ? account.problem : undefined} next="/account/orders" />;
   if (!account.data.emailVerified) return <AccountAccess unverified />;

@@ -5,7 +5,7 @@ import { orderRequest, product } from "@/test/fixtures";
 const origin = "https://shop.example.test";
 describe("bounded BFF policy", () => {
   it.each([["GET", ["Product"]], ["GET", ["Product", "home"]], ["GET", ["Product", "by-slug", "headphones"]], ["GET", ["Order", "attempt", product.id]], ["POST", ["Order"]], ["POST", ["Auth", "login"]], ["POST", ["Account", "order-claims", "complete"]]])("allows selected commerce %s %j", (method, path) => {
-    expect(commerceRoute(String(method), path as string[])).not.toBeNull();
+    expect(commerceRoute(String(method), path as string[], false)).not.toBeNull();
   });
   it.each([["GET", ["https:", "evil"]], ["GET", ["..", "Product"]], ["POST", ["Product"]], ["DELETE", ["Order", product.id]], ["PATCH", ["Auth", "me"]], ["GET", ["diagnostics"]], ["GET", ["Product", "by-slug", "a/b"]]])("rejects arbitrary method/path %s %j", (method, path) => {
     expect(commerceRoute(String(method), path as string[])).toBeNull();
@@ -25,6 +25,17 @@ describe("bounded BFF policy", () => {
     }
     for (const quantity of [0, 1.5, 100, "2"]) expect(() => allowBody("Checkout/quote", "POST", { items: [{ productId: product.id, quantity }] })).toThrow();
     expect(() => allowBody("Checkout/quote", "POST", { items: [{ productId: product.id, quantity: 1, unitPrice: 1 }] })).toThrow();
+  });
+  it.each([["GET", ["Order", product.id]], ["GET", ["Account", "orders"]], ["POST", ["Account", "order-claims", "complete"]], ["POST", ["Guest", "exchange"]], ["POST", ["Auth", "register"]], ["POST", ["Auth", "forgot"]]])("disables customer features by default %s %j", (method, path) => {
+    expect(commerceRoute(String(method), path as string[])).toBeNull();
+    expect(commerceRoute(String(method), path as string[], false)).not.toBeNull();
+  });
+  it("keeps receipt recovery and staff routes without exposing customer tracking", () => {
+    expect(commerceRoute("POST", ["Order"])?.kind).toBe("receipt");
+    expect(commerceRoute("GET", ["Order", "attempt", product.id])?.kind).toBe("receipt");
+    expect(commerceRoute("GET", ["Admin", "orders", product.id])?.kind).toBe("order");
+    expect(commerceRoute("GET", ["Auth", "me"])?.kind).toBe("account");
+    expect(commerceRoute("POST", ["Auth", "logout"])?.kind).toBe("message");
   });
 });
 

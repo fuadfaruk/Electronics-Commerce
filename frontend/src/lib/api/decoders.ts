@@ -3,7 +3,7 @@ import { isHttpsImage, isLocalArtwork } from "@/lib/catalog/visuals";
 import { FULFILLMENT_STATES } from "@/types/api";
 import type {
   AccountDto, CategoryDto, CatalogPageDto, ContactDto, CsrfDto,
-  DeliveryAddressDto, Fulfillment, HomeDto, MoneyDto, OrderDto,
+  DeliveryAddressDto, Fulfillment, HomeDto, MoneyDto, OrderDto, OrderReceiptDto,
   OrderLineDto, OrderSummaryDto, OwnerKind, PagedOrdersDto, Payment,
   ProductDetailDto, ProductDto, QuoteDto, StorefrontMode,
 } from "@/types/api";
@@ -229,7 +229,7 @@ function parseAddress(value: unknown): DeliveryAddressDto {
   };
 }
 
-export function parseOrder(value: unknown): OrderDto {
+export function parseOrderReceipt(value: unknown): OrderReceiptDto {
   const o = record(value);
   const lines = array(o.lines, parseLine);
   if (!lines.length) invalid();
@@ -237,9 +237,17 @@ export function parseOrder(value: unknown): OrderDto {
   validateLines(lines, money);
   return {
     id: guid(o.id), number: text(o.number, 64), createdAt: date(o.createdAt),
+    money, lines,
+  };
+}
+
+export function parseOrder(value: unknown): OrderDto {
+  const o = record(value);
+  return {
+    ...parseOrderReceipt(o),
     fulfillment: fulfillment(o.fulfillment), payment: payment(o.payment), version: whole(o.version, 1),
-    contact: parseContact(o.contact), deliveryAddress: parseAddress(o.deliveryAddress), money,
-    notes: o.notes == null ? null : text(o.notes, 1000, true), lines,
+    contact: parseContact(o.contact), deliveryAddress: parseAddress(o.deliveryAddress),
+    notes: o.notes == null ? null : text(o.notes, 1000, true),
     events: array(o.events, (entry) => {
       const e = record(entry);
       return {

@@ -18,7 +18,7 @@ public sealed class IdentityHttpTests
     public async Task Cookie_origin_csrf_verification_and_generic_recovery_are_enforced()
     {
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath());
+        await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures);
         await factory.InitializeDatabase(); using var client = factory.Browser();
         var account = new { name = "Sample Customer", email = "sample@example.com", password = "StrongPass1!" };
         using var missingCsrf = await CommerceApiFactory.Send(client, "Auth/register", account, csrf: false);
@@ -57,7 +57,7 @@ public sealed class IdentityHttpTests
     public async Task Logout_reset_and_security_stamp_revoke_all_devices_and_expired_auth_is_not_guest()
     {
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath()); await factory.InitializeDatabase();
+        await using var factory = new CommerceApiFactory(database.ConnectionString, KeyPath(), overrides: CommerceApiFactory.FullFeatures); await factory.InitializeDatabase();
         using var scope = factory.Services.CreateScope(); var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = new ApplicationUser { Id = Guid.NewGuid(), UserName = "verified@example.com", Email = "verified@example.com", EmailConfirmed = true, Name = "Sample" };
         Assert.True((await users.CreateAsync(user, "StrongPass1!")).Succeeded);
@@ -84,7 +84,7 @@ public sealed class IdentityHttpTests
     {
         await using var database = await IsolatedDatabase.Create(); var path = KeyPath();
         string cookie;
-        await using (var factory = new CommerceApiFactory(database.ConnectionString, path))
+        await using (var factory = new CommerceApiFactory(database.ConnectionString, path, overrides: CommerceApiFactory.FullFeatures))
         {
             await factory.InitializeDatabase(); using var scope = factory.Services.CreateScope(); var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var user = new ApplicationUser { Id = Guid.NewGuid(), UserName = "operator@example.com", Email = "operator@example.com", EmailConfirmed = true };
@@ -92,7 +92,7 @@ public sealed class IdentityHttpTests
             using var client = factory.Browser(); using var login = await CommerceApiFactory.Send(client, "Auth/login", new { email = user.Email, password = "StrongPass1!" });
             Assert.Equal(HttpStatusCode.OK, login.StatusCode); cookie = login.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("ElectroMart.Auth=")).Split(';')[0];
         }
-        await using var restarted = new CommerceApiFactory(database.ConnectionString, path);
+        await using var restarted = new CommerceApiFactory(database.ConnectionString, path, overrides: CommerceApiFactory.FullFeatures);
         using var resumed = restarted.Browser(false); resumed.DefaultRequestHeaders.Add("Cookie", cookie);
         using var me = await resumed.GetAsync("/api/v1/Auth/me"); Assert.Equal(HttpStatusCode.OK, me.StatusCode);
         using var failures = restarted.Browser();

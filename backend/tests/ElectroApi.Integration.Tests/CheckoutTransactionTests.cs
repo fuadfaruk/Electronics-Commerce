@@ -14,7 +14,7 @@ namespace ElectroApi.Integration.Tests;
 public sealed class CheckoutTransactionTests
 {
     private static ApplicationDbContext Context(string connection) => new(new DbContextOptionsBuilder<ApplicationDbContext>().UseMySQL(connection).Options);
-    private static ICommerceMail Mail() => new CommerceMail(DataProtectionProvider.Create("ElectroMart.Tests"), new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Storefront:Origin"] = "https://localhost:3000" }).Build());
+    private static ICommerceMail Mail() => new CommerceMail(DataProtectionProvider.Create("ElectroMart.Tests"), OwnerNotificationTestSettings.Configuration());
     private static CommerceOwner Owner(string id = "one") => new("g:" + CommerceRepository.Hash(id), null, null);
     private static AcceptOrderRequest Request(Guid quote) => new(quote, new() { Name = "Sample Customer", Email = "sample@example.com", Phone = "01712345678" }, new() { Street = "123 Sample Road", Area = "Sample Area", City = "Dhaka", District = "Dhaka", Postcode = "1205" }, "Sample delivery note");
     private static async Task<Guid> Setup(string connection, int stock = 3)
@@ -28,7 +28,7 @@ public sealed class CheckoutTransactionTests
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
         var notifications = OwnerNotificationTestSettings.Builder();
-        await using var db = Context(database.ConnectionString); var service = new CommerceRepository(db, Mail(), notifications);
+        await using var db = Context(database.ConnectionString); var service = new CommerceRepository(db, Mail(), notifications, OwnerNotificationTestSettings.Configuration());
         var quote = await service.Quote(Owner(), new([new(productId, 1), new(productId, 1)]), default);
         Assert.Empty(quote.Problems); Assert.Single(quote.Lines); Assert.Equal(2, quote.Lines[0].Quantity); Assert.Equal(998m, quote.Money.Subtotal); Assert.Equal(80m, quote.Money.Delivery);
         var request = Request(quote.QuoteId); var order = await service.Accept(Owner(), "same-key-123456789", request, default);
@@ -61,10 +61,10 @@ public sealed class CheckoutTransactionTests
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
         Guid quoteId;
-        await using (var db = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
+        await using (var db = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
         async Task<OrderDto> Accept()
         {
-            await using var db = Context(database.ConnectionString); return await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Accept(Owner(), "concurrent-key-123456", Request(quoteId), default);
+            await using var db = Context(database.ConnectionString); return await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Accept(Owner(), "concurrent-key-123456", Request(quoteId), default);
         }
         var responses = await Task.WhenAll(Accept(), Accept()); Assert.Equal(responses[0].Id, responses[1].Id);
         await using var check = Context(database.ConnectionString); Assert.Equal(1, await check.Orders.CountAsync()); Assert.Equal(1, await check.CommandReceipts.CountAsync()); Assert.Equal(2, await check.Products.Where(p => p.Id == productId).Select(p => p.Stock).SingleAsync());
@@ -76,12 +76,12 @@ public sealed class CheckoutTransactionTests
     public async Task Independent_last_unit_quotes_cannot_oversell_and_failed_acceptance_rolls_back_everything()
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString, 1);
-        async Task<Guid> Quote(string owner) { await using var db = Context(database.ConnectionString); return (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Quote(Owner(owner), new([new(productId, 1)]), default)).QuoteId; }
+        async Task<Guid> Quote(string owner) { await using var db = Context(database.ConnectionString); return (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Quote(Owner(owner), new([new(productId, 1)]), default)).QuoteId; }
         var first = await Quote("first"); var second = await Quote("second");
         async Task<int> Accept(string owner, Guid quote)
         {
             await using var db = Context(database.ConnectionString);
-            try { await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Accept(Owner(owner), "last-unit-key-123456", Request(quote), default); return 1; }
+            try { await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Accept(Owner(owner), "last-unit-key-123456", Request(quote), default); return 1; }
             catch (CommerceException exception) { Assert.Equal("stock_unavailable", exception.Code); return 0; }
         }
         Assert.Equal(1, (await Task.WhenAll(Accept("first", first), Accept("second", second))).Sum());
@@ -93,7 +93,7 @@ public sealed class CheckoutTransactionTests
     public async Task Quote_price_and_owner_changes_are_explicit_conflicts_not_silent_adjustments()
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
-        await using var db = Context(database.ConnectionString); var service = new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder());
+        await using var db = Context(database.ConnectionString); var service = new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration());
         var quote = await service.Quote(Owner(), new([new(productId, 1)]), default);
         var ownerError = await Assert.ThrowsAsync<CommerceException>(() => service.Accept(Owner("other"), "changed-owner-123456", Request(quote.QuoteId), default)); Assert.Equal("quote_owner_changed", ownerError.Code);
         db.ChangeTracker.Clear(); await db.Products.Where(p => p.Id == productId).ExecuteUpdateAsync(s => s.SetProperty(p => p.Price, 500m).SetProperty(p => p.Version, p => p.Version + 1));
@@ -109,15 +109,15 @@ public sealed class CheckoutTransactionTests
         var actor = Guid.NewGuid(); OrderDto order;
         await using (var db = Context(database.ConnectionString))
         {
-            var service = new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()); var quote = await service.Quote(Owner(), new([new(productId, 2)]), default); order = await service.Accept(Owner(), "command-order-123456", Request(quote.QuoteId), default);
+            var service = new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()); var quote = await service.Quote(Owner(), new([new(productId, 2)]), default); order = await service.Accept(Owner(), "command-order-123456", Request(quote.QuoteId), default);
         }
         async Task<OrderDto> Cancel()
         {
-            await using var db = Context(database.ConnectionString); return await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).ChangeOrder(actor, order.Id, "cancel-key-123456789", "Cancelled", 1, "Sample cancelled", default);
+            await using var db = Context(database.ConnectionString); return await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).ChangeOrder(actor, order.Id, "cancel-key-123456789", "Cancelled", 1, "Sample cancelled", default);
         }
         var cancelled = await Task.WhenAll(Cancel(), Cancel()); Assert.All(cancelled, value => Assert.Equal(Core.Enums.OrderStatus.Cancelled, value.Fulfillment));
         await using (var db = Context(database.ConnectionString)) { Assert.Equal(3, await db.Products.Where(p => p.Id == productId).Select(p => p.Stock).SingleAsync()); Assert.Equal(2, await db.Set<OrderEvent>().CountAsync()); Assert.Equal(1, await db.OwnerOrderNotifications.CountAsync()); }
-        await using var scope = Context(database.ConnectionString); var commands = new CommerceRepository(scope, Mail(), OwnerNotificationTestSettings.Builder());
+        await using var scope = Context(database.ConnectionString); var commands = new CommerceRepository(scope, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration());
         var quote2 = await commands.Quote(Owner("another"), new([new(productId, 1)]), default); var order2 = await commands.Accept(Owner("another"), "fulfillment-123456789", Request(quote2.QuoteId), default); scope.ChangeTracker.Clear();
         var earlyCash = await Assert.ThrowsAsync<CommerceException>(() => commands.ChangeOrder(actor, order2.Id, "early-cash-123456789", "Collected", 1, null, default)); Assert.Equal("collection_not_allowed", earlyCash.Code); scope.ChangeTracker.Clear();
         order2 = await commands.ChangeOrder(actor, order2.Id, "confirm-key-123456789", "Confirmed", 1, null, default); scope.ChangeTracker.Clear();
@@ -139,11 +139,11 @@ public sealed class CheckoutTransactionTests
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
         Guid quoteId;
-        await using (var quoteDb = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(quoteDb, Mail(), OwnerNotificationTestSettings.Builder()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
+        await using (var quoteDb = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(quoteDb, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
         await using var locked = Context(database.ConnectionString); await using var blocker = await locked.Database.BeginTransactionAsync();
         await locked.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Products WHERE Id = {productId.ToString()} FOR UPDATE");
         await using var buyer = Context(database.ConnectionString); await buyer.Database.OpenConnectionAsync(); await buyer.Database.ExecuteSqlRawAsync("SET SESSION innodb_lock_wait_timeout = 1");
-        var service = new CommerceRepository(buyer, Mail(), OwnerNotificationTestSettings.Builder());
+        var service = new CommerceRepository(buyer, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration());
         var exception = await Assert.ThrowsAsync<CommerceException>(() => service.Accept(Owner(), "timeout-recovery-123456", Request(quoteId), default)); Assert.Equal(503, exception.Status);
         Assert.Equal(0, await buyer.CommandReceipts.CountAsync()); Assert.Equal(0, await buyer.Orders.CountAsync()); Assert.Equal(0, await buyer.OwnerOrderNotifications.CountAsync()); Assert.Equal(0, await buyer.EmailOutbox.CountAsync()); Assert.Equal(0, await buyer.GuestCapabilities.CountAsync());
         await blocker.CommitAsync();
@@ -156,12 +156,12 @@ public sealed class CheckoutTransactionTests
     {
         await using var database = await IsolatedDatabase.Create(); var productId = await Setup(database.ConnectionString);
         Guid quoteId;
-        await using (var db = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
-        async Task Accept() { await using var db = Context(database.ConnectionString); await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).Accept(Owner(), "stock-race-order-123456", Request(quoteId), default); }
+        await using (var db = Context(database.ConnectionString)) quoteId = (await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Quote(Owner(), new([new(productId, 1)]), default)).QuoteId;
+        async Task Accept() { await using var db = Context(database.ConnectionString); await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).Accept(Owner(), "stock-race-order-123456", Request(quoteId), default); }
         async Task<int> Adjust()
         {
             await using var db = Context(database.ConnectionString);
-            try { await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder()).AdjustStock(Guid.NewGuid(), productId, "stock-race-adjust-123456", new(1, 1, "Sample stock count"), default); return 1; }
+            try { await new CommerceRepository(db, Mail(), OwnerNotificationTestSettings.Builder(), OwnerNotificationTestSettings.Configuration()).AdjustStock(Guid.NewGuid(), productId, "stock-race-adjust-123456", new(1, 1, "Sample stock count"), default); return 1; }
             catch (CommerceException exception) { Assert.Equal("stale_version", exception.Code); return 0; }
         }
         var adjustment = Adjust(); await Task.WhenAll(Accept(), adjustment);

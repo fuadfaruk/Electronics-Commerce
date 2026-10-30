@@ -39,6 +39,24 @@ public sealed class ProductionConfigurationTests
     public void Explicit_host_lists_reach_the_next_production_gate(string hosts) => Reject(new Dictionary<string, string?> { ["AllowedHosts"] = hosts, ["Security:KeyCertificateThumbprint"] = "" }, "certificate-encrypted");
     [Fact] public void Production_key_ring_requires_certificate_encryption() => Reject(new Dictionary<string, string?> { ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = "" }, "certificate-encrypted");
     [Theory]
+    [InlineData(null)]
+    [InlineData("false")]
+    public void Disabled_or_missing_mail_switch_ignores_SMTP_settings_without_bypassing_production_database_TLS(string? enabled) => Reject(new Dictionary<string, string?>
+    {
+        ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = "synthetic-test-thumbprint",
+        ["Mail:Enabled"] = enabled, ["Mail:Host"] = "", ["Mail:Sender"] = "", ["Mail:EnableSsl"] = "false",
+        ["OwnerNotifications:Enabled"] = "false", ["Telegram:BotToken"] = "synthetic-invalid-token", ["Telegram:OwnerChatId"] = "@synthetic-owner"
+    }, "SslMode=VerifyFull");
+    [Theory]
+    [InlineData("", "sender@example.com", true)]
+    [InlineData("smtp.example.com", "", true)]
+    [InlineData("smtp.example.com", "sender@example.com", false)]
+    public void Reenabled_production_mail_still_requires_SMTP_host_sender_and_TLS(string host, string sender, bool tls) => Reject(new Dictionary<string, string?>
+    {
+        ["AllowedHosts"] = "api.example.com", ["Security:KeyCertificateThumbprint"] = "synthetic-test-thumbprint",
+        ["Mail:Enabled"] = "true", ["Mail:Host"] = host, ["Mail:Sender"] = sender, ["Mail:EnableSsl"] = tls.ToString()
+    }, "SMTP sender, host and TLS");
+    [Theory]
     [InlineData("2147483648")]
     [InlineData("6543210987654321012")]
     [InlineData("9223372036854775807")]
@@ -113,7 +131,7 @@ public sealed class ProductionConfigurationTests
     public async Task Maintenance_pauses_all_routed_checkout_variants_without_mutation_and_preserves_private_recovery()
     {
         await using var database = await IsolatedDatabase.Create();
-        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "maintenance_keys_" + Guid.NewGuid().ToString("N")));
+        await using var factory = new CommerceApiFactory(database.ConnectionString, Path.Combine(Path.GetTempPath(), "kilo", "maintenance_keys_" + Guid.NewGuid().ToString("N")), overrides: CommerceApiFactory.FullFeatures);
         await factory.InitializeDatabase(); using var browser = factory.Browser();
         var productId = Guid.Parse("00000000-0000-4000-8000-000000000013"); var quoteRequest = new QuoteRequest([new(productId, 1)]);
         using var quote = await CommerceApiFactory.Send(browser, "Checkout/quote", quoteRequest); Assert.Equal(HttpStatusCode.OK, quote.StatusCode);

@@ -122,7 +122,6 @@ public partial class Program
         var app = builder.Build();
         ValidateConfiguration(app.Configuration, app.Environment);
         var development = app.Environment.IsDevelopment();
-        var ownerNotifications = app.Services.GetRequiredService<OwnerNotificationSettings>();
         var origin = new Uri(app.Configuration["Storefront:Origin"]!);
 
         if (args.Contains("--migrate-dev") || args.Contains("--seed-dev") || args.Contains("--bootstrap-admin"))
@@ -145,7 +144,22 @@ public partial class Program
             var status = context.HttpContext.Response.StatusCode;
             await context.HttpContext.Response.WriteAsJsonAsync(new { code = status == 401 ? "authentication_required" : status == 403 ? "forbidden" : "not_found", title = "Request could not be completed", detail = status == 401 ? "Sign in to continue." : status == 403 ? "You are not permitted to perform this action." : "The requested record is unavailable.", status, traceId = context.HttpContext.TraceIdentifier });
         });
-        app.UseRouting(); app.UseAuthentication(); app.UseRateLimiter(); app.UseAuthorization();
+        app.UseRouting(); app.UseAuthentication(); app.UseRateLimiter();
+        app.Use(async (context, next) =>
+        {
+            var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
+            var controller = action?.ControllerTypeInfo.AsType();
+            var guestOnly = configuration.GetValue("Commerce:GuestOnly", true);
+            var accountsUnavailable = guestOnly && controller == typeof(AccountController);
+            var trackingUnavailable = guestOnly && (controller == typeof(GuestController) || controller == typeof(OrderController) && action!.ActionName == nameof(OrderController.Detail));
+            var emailUnavailable = (guestOnly || !configuration.GetValue("Mail:Enabled", false)) &&
+                (controller == typeof(AuthController) && action!.ActionName is nameof(AuthController.Register) or nameof(AuthController.Verify) or nameof(AuthController.Resend) or nameof(AuthController.Forgot) or nameof(AuthController.Reset) ||
+                 controller == typeof(AccountController) && action!.ActionName is nameof(AccountController.RequestClaim) or nameof(AccountController.CompleteClaim));
+            if (accountsUnavailable || trackingUnavailable || emailUnavailable)
+                throw new CommerceException(404, "feature_unavailable", "This feature is currently unavailable.");
+            await next();
+        });
+        app.UseAuthorization();
         app.Use(async (context, next) =>
         {
             context.Response.Headers.CacheControl = "no-store";
@@ -158,10 +172,10 @@ public partial class Program
                 try { await context.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(context); }
                 catch (AntiforgeryValidationException) { throw new CommerceException(400, "csrf_invalid", "Refresh the security token and try again."); }
                 var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
-                if (context.Request.Method == "POST" && (!configuration.GetValue("Commerce:CheckoutEnabled", development) || !development && !ownerNotifications.Enabled) && action is not null &&
+                if (context.Request.Method == "POST" && !configuration.GetValue("Commerce:CheckoutEnabled", development) && action is not null &&
                     ((action.ControllerTypeInfo.AsType() == typeof(CheckoutController) && action.ActionName == nameof(CheckoutController.Quote)) ||
                      (action.ControllerTypeInfo.AsType() == typeof(OrderController) && action.ActionName == nameof(OrderController.Accept))))
-                    throw new CommerceException(503, "temporarily_unavailable", "Checkout is paused for maintenance. Existing order tracking remains available.");
+                    throw new CommerceException(503, "temporarily_unavailable", "Checkout is paused for maintenance. Original order attempts remain recoverable.");
             }
             await next();
         });
@@ -189,7 +203,7 @@ public partial class Program
             if (hosts.Length == 0 || hosts.Any(host => string.IsNullOrWhiteSpace(host) || host.Contains('*') || Uri.CheckHostName(host) == UriHostNameType.Unknown))
                 throw new InvalidOperationException("Production AllowedHosts must contain explicit API hosts.");
             if (string.IsNullOrWhiteSpace(configuration["Security:KeyCertificateThumbprint"])) throw new InvalidOperationException("Production requires a certificate-encrypted persistent Data Protection key ring.");
-            if (string.IsNullOrWhiteSpace(configuration["Mail:Host"]) || string.IsNullOrWhiteSpace(configuration["Mail:Sender"]) || !configuration.GetValue("Mail:EnableSsl", false)) throw new InvalidOperationException("Production requires configured SMTP sender, host and TLS.");
+            if (configuration.GetValue("Mail:Enabled", false) && (string.IsNullOrWhiteSpace(configuration["Mail:Host"]) || string.IsNullOrWhiteSpace(configuration["Mail:Sender"]) || !configuration.GetValue("Mail:EnableSsl", false))) throw new InvalidOperationException("Enabled production mail requires configured SMTP sender, host and TLS.");
             var mysql = new MySqlConnectionStringBuilder(connection);
             if (mysql.SslMode != MySqlSslMode.VerifyFull) throw new InvalidOperationException("Production MySQL requires SslMode=VerifyFull.");
         }

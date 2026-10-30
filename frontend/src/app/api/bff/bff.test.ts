@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/bff/[...path]/route";
-import { account, catalogPage, product } from "@/test/fixtures";
+import { account, catalogPage, order, orderReceipt, product } from "@/test/fixtures";
 
 const origin = "https://shop.example.test";
 const context = (path: string[]) => ({ params: Promise.resolve({ path }) });
-beforeEach(() => { vi.stubEnv("STOREFRONT_MODE", "live"); vi.stubEnv("API_BASE_URL", "https://api.example.test"); vi.stubEnv("STOREFRONT_URL", origin); });
+beforeEach(() => { vi.stubEnv("STOREFRONT_MODE", "live"); vi.stubEnv("STOREFRONT_GUEST_ONLY", "true"); vi.stubEnv("API_BASE_URL", "https://api.example.test"); vi.stubEnv("STOREFRONT_URL", origin); });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("BFF route boundary", () => {
@@ -22,6 +22,7 @@ describe("BFF route boundary", () => {
     expect(new Headers(fetch.mock.calls[0][1].headers).get("Authorization")).toBeNull();
   });
   it("sanitizes upstream failures, including raw PII/URLs/stacks", async () => {
+    vi.stubEnv("STOREFRONT_GUEST_ONLY", "false");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ code: "quote_expired", title: "secret PII", detail: "http://internal/password", stack: "private", traceId: "email@example.test" }, { status: 409 })));
     const response = await GET(new Request(`${origin}/api/bff/Order/${product.id}`), context(["Order", product.id]));
     const body = await response.json();
@@ -43,5 +44,18 @@ describe("BFF route boundary", () => {
     expect((await GET(new Request(`${origin}/api/bff/Product`), context(["Product"]))).status).toBe(200);
     expect((await POST(new Request(`${origin}/api/bff/Auth/login`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: "{}" }), context(["Auth", "login"]))).status).toBe(403);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([{ path: ["Order", product.id] }, { path: ["Account", "orders"] }])("does not contact the API for disabled tracking $path", async ({ path }) => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const response = await GET(new Request(`${origin}/api/bff/${path.join("/")}`), context(path));
+    expect(response.status).toBe(404);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("strips all live tracking and contact fields from original-attempt receipts", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(order)); vi.stubGlobal("fetch", fetch);
+    const response = await GET(new Request(`${origin}/api/bff/Order/attempt/${order.id}`), context(["Order", "attempt", order.id]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(orderReceipt);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

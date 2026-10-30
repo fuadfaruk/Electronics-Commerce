@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serverGet } from "@/lib/api/server";
-import { parseAccount } from "@/lib/api/decoders";
-import { account } from "@/test/fixtures";
+import { parseAccount, parseOrder } from "@/lib/api/decoders";
+import { account, order } from "@/test/fixtures";
 
 const mocks = vi.hoisted(() => ({ cookies: vi.fn() }));
 vi.mock("next/headers", () => ({ cookies: mocks.cookies }));
-beforeEach(() => { vi.stubEnv("STOREFRONT_MODE", "live"); vi.stubEnv("API_BASE_URL", "http://localhost:5249"); vi.stubEnv("STOREFRONT_URL", "http://localhost:3000"); });
+beforeEach(() => { vi.stubEnv("STOREFRONT_MODE", "live"); vi.stubEnv("STOREFRONT_GUEST_ONLY", "true"); vi.stubEnv("API_BASE_URL", "http://localhost:5249"); vi.stubEnv("STOREFRONT_URL", "http://localhost:3000"); });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("private RSC transport", () => {
@@ -26,5 +26,13 @@ describe("private RSC transport", () => {
     const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 401 })); vi.stubGlobal("fetch", fetch);
     await expect(serverGet("Auth/me", parseAccount)).rejects.toMatchObject({ problem: { status: 401 } });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("refuses customer tracking before cookies or network, but retains opt-in reads", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(order)); vi.stubGlobal("fetch", fetch);
+    await expect(serverGet(`Order/${order.id}`, parseOrder)).rejects.toMatchObject({ problem: { status: 404 } });
+    expect(fetch).not.toHaveBeenCalled();
+    vi.stubEnv("STOREFRONT_GUEST_ONLY", "false");
+    mocks.cookies.mockResolvedValue({ getAll: () => [] });
+    expect(await serverGet(`Order/${order.id}`, parseOrder)).toEqual(order);
   });
 });

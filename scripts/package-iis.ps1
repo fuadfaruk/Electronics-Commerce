@@ -78,6 +78,22 @@ function Assert-CheckoutPaused([string] $Path) {
     } catch { throw 'Packaged API must explicitly set Commerce.CheckoutEnabled to the JSON boolean false.' }
 }
 
+function Assert-FrontendEnvironment([Xml.XmlElement] $Platform) {
+    $requiredEnvironment = @{ PORT = '%HTTP_PLATFORM_PORT%'; HOSTNAME = '127.0.0.1'; NODE_ENV = 'production';
+        STOREFRONT_MODE = 'live'; API_BASE_URL = '%API_BASE_URL%'; STOREFRONT_URL = '%STOREFRONT_URL%' }
+    foreach ($name in $requiredEnvironment.Keys) {
+        $variables = @($Platform.SelectNodes("environmentVariables/environmentVariable[@name='$name']"))
+        if ($variables.Count -ne 1 -or $variables[0].GetAttribute('value') -cne $requiredEnvironment[$name]) { throw 'Frontend IIS runtime environment is incomplete or unsafe.' }
+    }
+    $guestOnly = @($Platform.SelectNodes("environmentVariables/environmentVariable[@name='STOREFRONT_GUEST_ONLY']"))
+    if ($guestOnly.Count -gt 1) { throw 'Unexpected packaged frontend environment values.' }
+    if ($guestOnly.Count -eq 1 -and $guestOnly[0].GetAttribute('value') -cnotin @('true', 'false')) { throw 'Packaged STOREFRONT_GUEST_ONLY must be the boolean string true or false.' }
+    $allowedEnvironment = @($requiredEnvironment.Keys) + @('STOREFRONT_GUEST_ONLY')
+    foreach ($variable in $Platform.SelectNodes('environmentVariables/environmentVariable')) {
+        if ($variable.GetAttribute('name') -cnotin $allowedEnvironment) { throw 'Unexpected packaged frontend environment values.' }
+    }
+}
+
 function Assert-ReleaseLayout([string] $Path) {
     foreach ($relative in @('backend/ElectroApi.Api.dll', 'backend/ElectroApi.Api.runtimeconfig.json', 'backend/ElectroApi.Api.deps.json', 'backend/web.config', 'backend/appsettings.json',
             'frontend/server.js', 'frontend/.next/BUILD_ID', 'frontend/web.config', 'security/audit-summary.json',
@@ -111,13 +127,7 @@ function Assert-ReleaseLayout([string] $Path) {
         $platform.GetAttribute('arguments') -ne '.\server.js' -or $platform.GetAttribute('stdoutLogEnabled') -ne 'false') {
         throw 'Frontend IIS configuration must use Node HttpPlatformHandler and disabled stdout logging.'
     }
-    $requiredEnvironment = @{ PORT = '%HTTP_PLATFORM_PORT%'; HOSTNAME = '127.0.0.1'; NODE_ENV = 'production';
-        STOREFRONT_MODE = 'live'; API_BASE_URL = '%API_BASE_URL%'; STOREFRONT_URL = '%STOREFRONT_URL%' }
-    foreach ($name in $requiredEnvironment.Keys) {
-        $variable = $platform.SelectSingleNode("environmentVariables/environmentVariable[@name='$name']")
-        if (-not $variable -or $variable.GetAttribute('value') -ne $requiredEnvironment[$name]) { throw 'Frontend IIS runtime environment is incomplete or unsafe.' }
-    }
-    if (@($platform.SelectNodes('environmentVariables/environmentVariable')).Count -ne $requiredEnvironment.Count) { throw 'Unexpected packaged frontend environment values.' }
+    Assert-FrontendEnvironment $platform
     $configuration = Join-Path $Path 'backend/appsettings.json'
     if (Test-Path -LiteralPath $configuration -PathType Leaf) {
         $settings = Get-Content -LiteralPath $configuration -Raw | ConvertFrom-Json

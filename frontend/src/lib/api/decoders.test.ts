@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseCatalogPage, parseCsrf, parseMoney, parseOrder, parseProduct, parseQuote } from "@/lib/api/decoders";
-import { account, catalogPage, order, product, quote } from "@/test/fixtures";
+import { parseCatalogPage, parseCsrf, parseMoney, parseOrder, parseOrderReceipt, parseProduct, parseQuote } from "@/lib/api/decoders";
+import { account, catalogPage, order, orderReceipt, product, quote } from "@/test/fixtures";
 
 describe("strict dedicated commerce DTOs", () => {
   it.each([null, 0, -1, 100.5, Number.NaN, Number.POSITIVE_INFINITY, "1200"])("rejects unsafe product price %s", (price) => {
@@ -40,6 +40,14 @@ describe("strict dedicated commerce DTOs", () => {
     expect(() => parseOrder({ ...order, payment: "Paid" })).toThrow();
     expect(() => parseQuote({ ...quote, lines: [{ ...quote.lines[0], quantity: 100 }] })).toThrow();
     expect(() => parseQuote({ ...quote, lines: [{ ...quote.lines[0], lineTotal: 2399 }] })).toThrow();
+  });
+  it("decodes immutable receipts and never forwards tracking or contact fields", () => {
+    expect(parseOrderReceipt(orderReceipt)).toEqual(orderReceipt);
+    expect(parseOrderReceipt(order)).toEqual(orderReceipt);
+    expect(Object.keys(parseOrderReceipt(order)).sort()).toEqual(["createdAt", "id", "lines", "money", "number"]);
+    expect(() => parseOrderReceipt({ ...orderReceipt, lines: [] })).toThrow();
+    expect(() => parseOrderReceipt({ ...orderReceipt, money: { ...orderReceipt.money, total: 1 } })).toThrow();
+    expect(() => parseOrderReceipt({ ...orderReceipt, lines: [{ ...orderReceipt.lines[0], lineTotal: 1 }] })).toThrow();
   });
   it("permits the expired account CSRF marker only without guest fallback", () => {
     expect(parseCsrf({ token: "token-123", ownerKind: "account", account: null, sessionExpired: true })).toMatchObject({ ownerKind: "account", sessionExpired: true });

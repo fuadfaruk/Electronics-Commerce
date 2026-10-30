@@ -3,21 +3,22 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { LogoutButton } from "@/components/account/logout-button";
 import { CartLineRow } from "@/components/cart/cart-line-row";
 import { ContactFields } from "@/components/checkout/contact-fields";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/ui/error-notice";
 import { commerceGet, commerceMutation } from "@/lib/api/client";
-import { parseCsrf, parseOrder, parseQuote } from "@/lib/api/decoders";
+import { parseCsrf, parseOrderReceipt, parseQuote } from "@/lib/api/decoders";
 import { ApiRequestError, safeProblem } from "@/lib/api/errors";
 import { useCart } from "@/lib/cart/store";
 import { ATTEMPT_STORAGE_KEY, attemptMemory, clearAttempt, createAttempt, itemSignature, payloadHash, readAttempt, rememberAttempt, saveAttempt, type AttemptReference } from "@/lib/checkout/attempt";
 import { checkoutPayload } from "@/lib/checkout/validation";
 import { formatBDT } from "@/lib/money";
 import { withStorageLock } from "@/lib/storage-lock";
-import type { AccountDto, ApiProblem, CsrfDto, OrderDto, PlaceOrderRequest, QuoteDto } from "@/types/api";
+import type { AccountDto, ApiProblem, CsrfDto, OrderReceiptDto, PlaceOrderRequest, QuoteDto } from "@/types/api";
 
-export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | null }) {
+export function CheckoutForm({ initialAccount, guestOnly = true }: { initialAccount: AccountDto | null; guestOnly?: boolean }) {
   const cart = useCart();
   const router = useRouter();
   const [security, setSecurity] = useState<CsrfDto | null>(null);
@@ -27,6 +28,8 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
   const [acknowledged, setAcknowledged] = useState(false);
   const [attempt, setAttempt] = useState<AttemptReference | null>(null);
   const [receiptMissing, setReceiptMissing] = useState(false);
+  const [receipt, setReceipt] = useState<OrderReceiptDto | null>(null);
+  const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<ApiProblem | null>(null);
   const [formError, setFormError] = useState("");
@@ -36,6 +39,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
   const preparing = useRef(false);
   const mounted = useRef(true);
   const formRef = useRef<HTMLFormElement>(null);
+  const receiptHeading = useRef<HTMLHeadingElement>(null);
   const signature = itemSignature(cart.lines);
   // Returning to an old quantity must not revive a previously reviewed quote.
   if (quotedItems && quotedItems !== signature) {
@@ -57,7 +61,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
     if (!mounted.current) return;
     if (saved.reference) setAttempt(saved.reference);
     if (saved.unavailable) setNotice("Recovery storage is unavailable. Keep this tab open; do not reload or check out in another tab until your order is resolved.");
-    if (saved.invalid) setNotice("A checkout reference could not be verified. Check your order email or account history before placing another order.");
+    if (saved.invalid) setNotice(guestOnly ? "A checkout reference could not be verified. Contact the store before placing another order." : "A checkout reference could not be verified. Check your order email or account history before placing another order.");
   };
   const initializeFromEffect = useEffectEvent(initialize);
 
@@ -81,21 +85,24 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
     return () => window.clearTimeout(timer);
   }, [quote]);
 
+  useEffect(() => { if (receipt) receiptHeading.current?.focus(); }, [receipt]);
+
   const identityChanged = Boolean(initialAccount && security && security.account?.id !== initialAccount.id);
-  const accountBlocked = identityChanged || (security?.ownerKind === "account" && (!security.account || !security.account.emailVerified));
+  const accountBlocked = identityChanged || (security?.ownerKind === "account" && (!security.account || !security.account.emailVerified || (guestOnly && !attempt)));
   const quoteMatches = Boolean(quote && quotedItems === signature && !expired && !quote.problems.length && quote.lines.length === cart.lines.length && quote.lines.every((l) => l.availableStock >= l.quantity));
 
-  const finish = async (order: OrderDto, reference: AttemptReference) => {
+  const finish = async (order: OrderReceiptDto, reference: AttemptReference) => {
     if (itemSignature(order.lines) !== itemSignature(reference.items)) throw new ApiRequestError({ status: 502, code: "INVALID_RESPONSE" });
     await cart.confirmPurchase(order.id, order.lines);
     await clearAttempt(reference);
     setAttempt(null);
+    if (guestOnly) { setReceipt(order); return; }
     router.replace(`/orders/${order.id}`);
     router.refresh();
   };
 
   const requestQuote = async () => {
-    if (lock.current || !security || accountBlocked || !cart.lines.length || attempt) return;
+    if (lock.current || !security || accountBlocked || guestLimitReached || !cart.lines.length || attempt) return;
     const saved = readAttempt();
     if (saved.reference) { setAttempt(saved.reference); return; }
     lock.current = true; setBusy(true); setProblem(null); setFormError("");
@@ -108,7 +115,11 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
       setPriceChanged(next.money.total !== cart.totals.total || next.lines.some((l) => cart.lines.find((p) => p.productId === l.productId)?.unitPrice !== l.unitPrice));
       setQuote(next); setQuotedItems(itemSignature(items)); setAcknowledged(false); setExpired(Date.parse(next.expiresAt) <= Date.now());
       cart.reconcileQuote(next);
-    } catch (error) { setProblem(error instanceof ApiRequestError ? error.problem : safeProblem(503)); }
+    } catch (error) {
+      const failure = error instanceof ApiRequestError ? error.problem : safeProblem(503);
+      setProblem(failure);
+      if (failure.code === "GUEST_ORDER_LIMIT") setGuestLimitReached(true);
+    }
     finally { lock.current = false; setBusy(false); }
   };
 
@@ -128,7 +139,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
         remembered.unsubmitted = false;
       }
       rememberAttempt(reference, remembered ?? { payload, ownerKind: security.ownerKind, accountId: security.account?.id });
-      const order = await commerceMutation("Order", payload, parseOrder, {
+      const order = await commerceMutation("Order", payload, parseOrderReceipt, {
         mode: cart.source, idempotencyKey: reference.idempotencyKey,
         expectedOwner: reference.ownerKind,
         expectedAccountId: remembered?.accountId ?? security.account?.id,
@@ -138,7 +149,10 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
       const failure = error instanceof ApiRequestError ? error.problem : safeProblem(503);
       setProblem(failure);
       // These failures explicitly reject acceptance; outages/auth/idempotency remain uncertain.
-      if (["QUOTE_EXPIRED", "PRICE_CHANGED", "STOCK_CHANGED", "VALIDATION_FAILED"].includes(failure.code)) {
+      if (failure.code === "GUEST_ORDER_LIMIT") {
+        await clearAttempt(reference); setAttempt(null); setQuote(null); setAcknowledged(false); setGuestLimitReached(true);
+        setNotice("The store already has an order for this guest. This additional attempt was rejected and will not be retried.");
+      } else if (["QUOTE_EXPIRED", "PRICE_CHANGED", "STOCK_CHANGED", "VALIDATION_FAILED", "GUEST_CHECKOUT_REQUIRED"].includes(failure.code)) {
         await clearAttempt(reference); setAttempt(null); setQuote(null); setAcknowledged(false);
         setNotice("The store rejected this attempt. Review the form and request a fresh quote before placing an order.");
       } else setNotice("The checkout is not resolved. Keep this tab open; do not reload, place another order in any tab, or change identity. Use the original attempt below.");
@@ -147,7 +161,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
 
   const confirm = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!quote || !security || !quoteMatches || !acknowledged || lock.current || preparing.current || accountBlocked) return;
+    if (!quote || !security || !quoteMatches || !acknowledged || lock.current || preparing.current || accountBlocked || guestLimitReached) return;
     if (Date.parse(quote.expiresAt) <= Date.now()) { setExpired(true); setAcknowledged(false); return; }
     const result = checkoutPayload(new FormData(event.currentTarget), quote.quoteId, security.account?.email);
     if (!result.payload) { setFormError(result.error ?? "Check the form."); return; }
@@ -181,7 +195,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
     if (!attempt || lock.current) return;
     lock.current = true; setBusy(true); setProblem(null); setReceiptMissing(false);
     try {
-      await finish(await commerceGet(`Order/attempt/${attempt.idempotencyKey}`, parseOrder), attempt);
+      await finish(await commerceGet(`Order/attempt/${attempt.idempotencyKey}`, parseOrderReceipt), attempt);
     } catch (error) {
       if (error instanceof ApiRequestError && error.problem.status === 404) {
         setReceiptMissing(true); setNotice("No accepted receipt was found for this owner and attempt. Retry only the exact original request; a new attempt key will not be created.");
@@ -202,13 +216,20 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
 
   if (!cart.hydrated) return <p role="status">Restoring your cart...</p>;
   if (cart.source === "mock") return <p>Sample browsing only. Checkout is disabled.</p>;
+  if (receipt) return <section className="mx-auto max-w-2xl space-y-5 rounded-2xl border bg-surface p-5 sm:p-6">
+    <header className="space-y-2"><p className="bench-strip">Guest checkout / receipt</p><h1 ref={receiptHeading} tabIndex={-1} className="text-2xl font-semibold">Order received</h1><p className="break-all font-mono text-sm">Order {receipt.number}</p><p className="text-sm text-muted-foreground">Your order details have been received and saved. No payment was taken online.</p></header>
+    <ul className="divide-y">{receipt.lines.map((line) => <li key={line.productId} className="flex items-start justify-between gap-4 py-3 text-sm"><div className="min-w-0"><p className="break-words font-medium">{line.name}</p><p className="text-muted-foreground">Quantity: {line.quantity}</p></div><span className="shrink-0 font-mono">{formatBDT(line.lineTotal)}</span></li>)}</ul>
+    <dl className="space-y-2 text-sm"><div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{formatBDT(receipt.money.subtotal)}</dd></div><div className="flex justify-between gap-4"><dt>Delivery charge</dt><dd>{formatBDT(receipt.money.delivery)}</dd></div><div className="flex justify-between gap-4 border-t pt-3 font-semibold"><dt>Order total</dt><dd>{formatBDT(receipt.money.total)}</dd></div></dl>
+    <p className="text-xs text-muted-foreground">One order is allowed per guest. Keep your order number for any questions about your purchase.</p>
+    <Link href="/products" className={buttonStyles({ variant: "secondary" })}>Continue browsing</Link>
+  </section>;
   return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]" aria-busy={busy}>
     <section className="min-w-0 space-y-5">
-      <header className="space-y-2"><p className="bench-strip">Checkout / order review</p><h1 className="text-2xl font-semibold">Review and place your order</h1><p className="text-sm text-muted-foreground">A server-issued quote confirms price, delivery and availability. No payment is taken online. We will contact you to confirm the order and payment.</p></header>
+      <header className="space-y-2"><p className="bench-strip">{guestOnly ? "Guest checkout / order review" : "Checkout / order review"}</p><h1 className="text-2xl font-semibold">Review and place your order</h1><p className="text-sm text-muted-foreground">A server-issued quote confirms price, delivery and availability. No payment is taken online. We will contact you to confirm the order and payment.</p>{guestOnly ? <p className="text-sm text-muted-foreground">No account is needed. One order is allowed per guest.</p> : null}</header>
       {notice || cart.notice ? <p role="status" className="rounded-xl border bg-warning-soft p-3 text-sm">{notice || cart.notice}</p> : null}
       {problem ? <ErrorNotice heading="Checkout needs attention" problem={problem} retryable={false} /> : null}
       {formError ? <p role="alert" className="text-sm text-danger">{formError}</p> : null}
-      {accountBlocked ? <div className="space-y-3 rounded-2xl border p-4"><p className="text-sm">{identityChanged || security?.sessionExpired ? "Your account session changed or expired. Restore the same account to continue; checkout will not switch to a guest." : "Verify your account email before checkout."}</p><Link href={identityChanged || security?.sessionExpired ? "/account/login?next=%2Fcheckout" : "/account/resend"} className={buttonStyles({ variant: "secondary" })}>{identityChanged || security?.sessionExpired ? "Sign in again" : "Resend verification email"}</Link></div> : null}
+      {accountBlocked ? <div className="space-y-3 rounded-2xl border p-4">{guestOnly ? <><p className="text-sm">{attempt ? "Your account session changed or expired. Contact the store to resolve the original checkout; it will not switch to a guest." : "Checkout is currently guest-only. Sign out explicitly before starting a guest order."}</p>{!attempt ? <LogoutButton mode="live" accountId={security?.account?.id} redirectTo="/checkout" /> : null}</> : <><p className="text-sm">{identityChanged || security?.sessionExpired ? "Your account session changed or expired. Restore the same account to continue; checkout will not switch to a guest." : "Verify your account email before checkout."}</p><Link href={identityChanged || security?.sessionExpired ? "/account/login?next=%2Fcheckout" : "/account/resend"} className={buttonStyles({ variant: "secondary" })}>{identityChanged || security?.sessionExpired ? "Sign in again" : "Resend verification email"}</Link></>}</div> : null}
       {!security ? <Button variant="secondary" disabled={busy} onClick={() => void initialize()}>Retry security check</Button> : null}
       {attempt ? <section className="space-y-3 rounded-2xl border border-warning/40 bg-warning-soft p-4">
         <h2 className="font-semibold">Resolve the original checkout</h2>
@@ -223,10 +244,10 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
           <Button type="submit" disabled={busy || accountBlocked}>Replay the original checkout attempt</Button>
         </form> : null}
       </section> : cart.lines.length ? <form ref={formRef} onSubmit={confirm} className="space-y-5">
-        <fieldset disabled={busy || Boolean(accountBlocked)} className="space-y-4"><legend className="mb-3 text-base font-semibold">Contact and delivery</legend><ContactFields account={security?.account} /></fieldset>
+        <fieldset disabled={busy || Boolean(accountBlocked) || guestLimitReached} className="space-y-4"><legend className="mb-3 text-base font-semibold">Contact and delivery</legend><ContactFields account={security?.account} /></fieldset>
         <p className="text-xs text-muted-foreground">Details are sent only when you place your order. They are not saved to browser storage.</p>
         {quote && quoteMatches ? <label className="flex min-h-11 items-start gap-3 rounded-xl border bg-brand-soft p-3 text-sm"><input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-brand" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} /><span>I reviewed this quote and agree to the items, delivery charge and order total of {formatBDT(quote.money.total)}.</span></label> : null}
-        <Button type="submit" size="lg" fullWidth disabled={busy || !quoteMatches || !acknowledged || !security || Boolean(accountBlocked)}>{busy ? "Resolving checkout..." : "Place order"}</Button>
+        <Button type="submit" size="lg" fullWidth disabled={busy || !quoteMatches || !acknowledged || !security || Boolean(accountBlocked) || guestLimitReached}>{busy ? "Resolving checkout..." : "Place order"}</Button>
       </form> : <div className="space-y-3"><p>Your cart is empty.</p><Link href="/products" className={buttonStyles({ variant: "secondary" })}>Browse products</Link></div>}
     </section>
     <aside className="min-w-0 space-y-4 rounded-2xl border bg-surface p-4">
@@ -239,7 +260,7 @@ export function CheckoutForm({ initialAccount }: { initialAccount: AccountDto | 
         {quote.problems.length ? <ul role="alert" className="space-y-1 text-sm text-danger">{quote.problems.map((p) => <li key={`${p.productId}-${p.code}`}>{p.message}</li>)}</ul> : null}
         <dl className="space-y-2 text-sm"><div className="flex justify-between"><dt>Quoted subtotal</dt><dd>{formatBDT(quote.money.subtotal)}</dd></div><div className="flex justify-between"><dt>Delivery</dt><dd>{formatBDT(quote.money.delivery)}</dd></div><div className="flex justify-between border-t pt-2 font-semibold"><dt>Quoted total</dt><dd>{formatBDT(quote.money.total)}</dd></div></dl>
       </div> : <p className="text-sm text-muted-foreground">Estimated total {formatBDT(cart.totals.total)}. A quote is required before confirmation.</p>}
-      {!attempt ? <Button variant="secondary" fullWidth disabled={busy || !security || Boolean(accountBlocked) || !cart.lines.length} onClick={requestQuote}>{busy ? "Checking..." : quote ? "Refresh quote" : "Check price and availability"}</Button> : null}
+      {!attempt ? <Button variant="secondary" fullWidth disabled={busy || !security || Boolean(accountBlocked) || guestLimitReached || !cart.lines.length} onClick={requestQuote}>{busy ? "Checking..." : quote ? "Refresh quote" : "Check price and availability"}</Button> : null}
     </aside>
   </div>;
 }

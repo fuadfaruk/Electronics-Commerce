@@ -6,6 +6,7 @@ import {
   SearchFieldSkeleton,
 } from "@/components/search/search-field";
 import { SITE_NAME, SITE_SUBTITLE } from "@/lib/site";
+import { getStorefrontConfig } from "@/lib/api/config";
 
 /**
  * Sticky header: illuminated wordmark, search, and the staged-modules cart.
@@ -15,6 +16,7 @@ import { SITE_NAME, SITE_SUBTITLE } from "@/lib/site";
  * `useSearchParams` needs a Suspense boundary, hence the skeleton.
  */
 export function SiteHeader() {
+  const { guestOnly } = getStorefrontConfig();
   return (
     <header className="glass-bar sticky top-0 z-40 border-b border-border">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
@@ -43,11 +45,11 @@ export function SiteHeader() {
           >
             Shop
           </Link>
-          <Link href="/account" prefetch={false} className="inline-flex h-11 items-center rounded-xl px-3 text-sm font-medium hover:bg-surface-muted">Account</Link>
+          {!guestOnly ? <Link href="/account" prefetch={false} className="inline-flex h-11 items-center rounded-xl px-3 text-sm font-medium hover:bg-surface-muted">Account</Link> : null}
         </nav>
 
-        <Link href="/account" prefetch={false} className="ml-auto inline-flex h-11 items-center rounded-xl px-2 text-xs font-medium md:hidden">Account</Link>
-        <CartButton className="md:ml-0" />
+        {!guestOnly ? <Link href="/account" prefetch={false} className="ml-auto inline-flex h-11 items-center rounded-xl px-2 text-xs font-medium md:hidden">Account</Link> : null}
+        <CartButton className={guestOnly ? "ml-auto md:ml-0" : "md:ml-0"} />
       </div>
 
       <div className="px-4 pb-3 md:hidden">
