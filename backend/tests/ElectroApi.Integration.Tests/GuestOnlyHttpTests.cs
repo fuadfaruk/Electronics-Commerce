@@ -43,10 +43,12 @@ public sealed class GuestOnlyHttpTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
-    private static async Task Problem(HttpResponseMessage response, HttpStatusCode status, string code)
+    private static async Task<JsonElement> Problem(HttpResponseMessage response, HttpStatusCode status, string code)
     {
         Assert.Equal(status, response.StatusCode);
-        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(code, problem.GetProperty("code").GetString());
+        return problem;
     }
     private static OrderReceiptDto Receipt(JsonElement data)
     {
@@ -214,8 +216,8 @@ public sealed class GuestOnlyHttpTests
         })
         {
             using var response = await CommerceApiFactory.Send(browser, "Auth/login", loginRequest);
-            await Problem(response, HttpStatusCode.Unauthorized, "authentication_required");
-            var current = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString(); detail ??= current; Assert.Equal(detail, current);
+            var problem = await Problem(response, HttpStatusCode.Unauthorized, "authentication_required");
+            var current = problem.GetProperty("detail").GetString(); detail ??= current; Assert.Equal(detail, current);
             Assert.False(response.Headers.TryGetValues("Set-Cookie", out var cookies) && cookies.Any(c => c.StartsWith("ElectroMart.Auth=")));
         }
         using var login = await CommerceApiFactory.Send(browser, "Auth/login", new LoginRequest("admin@example.com", "StrongPass1!")); Assert.True((await Data(login)).GetProperty("isAdmin").GetBoolean());
