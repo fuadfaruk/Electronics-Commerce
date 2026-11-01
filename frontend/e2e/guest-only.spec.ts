@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { expect, test as base, type APIRequestContext, type Page } from "@playwright/test";
+import { createServer } from "node:http";
+import { expect, test as base, type APIRequestContext, type Page, type Route } from "@playwright/test";
 import type { OrderReceiptDto, PlaceOrderRequest, QuoteDto } from "../src/types/api";
 
 const origin = process.env.E2E_BASE_URL ?? "http://localhost:3000";
@@ -76,6 +77,35 @@ async function confirmation(page: Page, order: OrderReceiptDto) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 }
 
+async function captureJson<T = unknown>(page: Page, path: string, trigger: () => Promise<unknown>, method: "GET" | "POST" = "POST") {
+  const target = new URL(path, page.url());
+  const matches = (url: URL) => url.origin === target.origin && url.pathname === target.pathname;
+  let body: Buffer | undefined;
+  const capture = async (route: Route) => {
+    if (route.request().method() !== method) return route.fallback();
+    const upstream = await route.fetch({ maxRedirects: 0 });
+    try {
+      // Buffer the real BFF response before the page can consume it and navigate.
+      body = await upstream.body();
+      await route.fulfill({ response: upstream, body });
+    } finally {
+      await upstream.dispose();
+    }
+  };
+  await page.route(matches, capture);
+  try {
+    const [response] = await Promise.all([
+      page.waitForResponse((response) => matches(new URL(response.url())) && response.request().method() === method),
+      trigger(),
+    ]);
+    expect(response.status()).toBe(200);
+    expect(body, "The response body must be captured before browser delivery.").toBeDefined();
+    return { data: JSON.parse(body!.toString("utf8")) as T, request: response.request() };
+  } finally {
+    await page.unroute(matches, capture);
+  }
+}
+
 async function prepare(page: Page, email: string): Promise<QuoteDto> {
   await page.goto(samplePath);
   await page.getByRole("button", { name: /add to cart/i }).first().click();
@@ -89,11 +119,8 @@ async function prepare(page: Page, email: string): Promise<QuoteDto> {
   await page.getByLabel("Area", { exact: true }).fill("Sample Area");
   await page.getByLabel("City or town").fill("Dhaka");
   await page.getByLabel("Postcode (optional)").fill("1205");
-  const result = page.waitForResponse((response) => response.url().endsWith("/Checkout/quote") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Check price and availability" }).click();
-  const response = await result;
-  expect(response.status()).toBe(200);
-  const quote = await response.json() as QuoteDto;
+  const { data: quote } = await captureJson<QuoteDto>(page, "/api/bff/Checkout/quote", () =>
+    page.getByRole("button", { name: "Check price and availability" }).click());
   expect(quote.ownerKind).toBe("guest");
   expect(quote.problems).toEqual([]);
   await page.getByRole("checkbox", { name: /I reviewed this quote/ }).check();
@@ -101,14 +128,12 @@ async function prepare(page: Page, email: string): Promise<QuoteDto> {
 }
 
 async function place(page: Page) {
-  const result = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/bff/Order" && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Place order", exact: true }).click();
-  const response = await result;
-  expect(response.status()).toBe(200);
-  const order = receipt(await response.json());
-  const key = response.request().headers()["idempotency-key"];
+  const { data, request } = await captureJson(page, "/api/bff/Order", () =>
+    page.getByRole("button", { name: "Place order", exact: true }).click());
+  const order = receipt(data);
+  const key = request.headers()["idempotency-key"];
   expect(key).toMatch(/^[a-f0-9-]{36}$/i);
-  const payload = response.request().postDataJSON() as PlaceOrderRequest;
+  const payload = request.postDataJSON() as PlaceOrderRequest;
   await confirmation(page, order);
   return { order, key, payload };
 }
@@ -125,6 +150,51 @@ async function staffLogin(page: Page) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/orders$/);
 }
+
+test("captured checkout response bodies remain available after immediate navigation", async ({ page }) => {
+  const quotePath = "/api/bff/Checkout/quote";
+  const expected = { quoteId: randomUUID(), ownerKind: "guest" };
+  let posts = 0;
+  const server = createServer((request, response) => {
+    request.resume();
+    if (request.url === quotePath && request.method === "POST") {
+      posts++;
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify(expected));
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
+    response.end(request.url === "/complete" ? "<h1>Navigation complete</h1>" : `<!doctype html>
+      <button type="button" onclick="requestQuote()">Request quote</button>
+      <script>
+        async function requestQuote() {
+          const response = await fetch('${quotePath}', { method: 'POST' });
+          await response.json();
+          location.href = '/complete';
+        }
+      </script>`);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a loopback test server.");
+    const localOrigin = `http://127.0.0.1:${address.port}`;
+    await page.goto(`${localOrigin}/checkout`);
+    const { data } = await captureJson<typeof expected>(page, quotePath, async () => {
+      await page.getByRole("button", { name: "Request quote", exact: true }).click();
+      // Deliberately discard the original document before the test inspects JSON.
+      await page.waitForURL(`${localOrigin}/complete`);
+    });
+    await expect(page.getByRole("heading", { name: "Navigation complete", exact: true })).toBeVisible();
+    expect(data).toEqual(expected);
+    expect(posts).toBe(1);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test("catalog, mobile cart and persisted items remain available without customer navigation", async ({ page }) => {
   await page.goto("/");
@@ -301,11 +371,9 @@ test("an accepted order with an uncertain browser response recovers the receipt 
     expect(saved.values).not.toMatch(/Sample Guest Customer|123 Sample Road|@example\.com|01712345678/);
     expect(JSON.parse(saved.attempt!).idempotencyKey).toBe(accepted!.key);
     await page.reload();
-    const recovered = page.waitForResponse((response) => response.url().endsWith(`/Order/attempt/${accepted!.key}`));
-    await page.getByRole("button", { name: "Check for receipt", exact: true }).click();
-    const response = await recovered;
-    expect(response.status()).toBe(200);
-    expect(receipt(await response.json())).toEqual(accepted!.order);
+    const { data } = await captureJson(page, `/api/bff/Order/attempt/${accepted!.key}`, () =>
+      page.getByRole("button", { name: "Check for receipt", exact: true }).click(), "GET");
+    expect(receipt(data)).toEqual(accepted!.order);
     await confirmation(page, accepted!.order);
     expect(accepts).toBe(1);
     expect(await page.evaluate((key) => localStorage.getItem(key), attemptStorageKey)).toBeNull();
