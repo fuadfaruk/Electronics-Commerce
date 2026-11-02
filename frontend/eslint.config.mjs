@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-require-imports": ["error", { allow: ["^node:path$", "^tinyglobby$"] }],
     },
   },
+  {
+    files: ["tooling/eslint-minimatch/index.cjs"],
+    // Legacy lint dependencies load the patched matcher bridge synchronously.
+    rules: {
+      "@typescript-eslint/no-require-imports": ["error", { allow: ["^minimatch-safe$"] }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

@@ -78,7 +78,7 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Test Release Automation Guards
-        run: node --test scripts/release-automation.test.mjs scripts/next-eslint-glob.test.mjs
+        run: node --test scripts/release-automation.test.mjs scripts/next-eslint-glob.test.mjs scripts/eslint-minimatch.test.mjs
       - name: Test Frontend With Coverage And Results
         working-directory: frontend
         run: npm run test:coverage
@@ -183,7 +183,7 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Test Windows Next ESLint Adapter
-        run: node --test scripts/next-eslint-glob.test.mjs
+        run: node --test scripts/next-eslint-glob.test.mjs scripts/eslint-minimatch.test.mjs
       - name: Typecheck Windows Production Configuration
         working-directory: frontend
         env:
