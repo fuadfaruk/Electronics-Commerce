@@ -439,7 +439,9 @@ or erase historical exposure. Do not rewrite Git history without separate approv
 
 ## License
 
-No license has been declared for this repository. Oracle Connector/NET is
-`GPL-2.0-only WITH Universal-FOSS-exception-1.0`, not Pomelo's licensing. An operator
-must confirm deployment/distribution licensing suitability or a commercial license
-before release; technical compatibility is not a legal conclusion.
+This project is licensed under the [MIT License](LICENSE).
+
+The project includes Oracle Connector/NET compatibility considerations, but the
+repository itself is released under MIT. Any operator or distributor still needs
+to confirm deployment/distribution licensing suitability for their own hosting,
+third-party dependencies, and commercial release context.
