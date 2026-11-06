@@ -1,6 +1,6 @@
 # ElectroMart
 
-A electronics gadgets storefront with an ASP.NET Core/MySQL commerce API.
+A electronics gadgets and parts storefront with an ASP.NET Core/MySQL commerce API.
 The current mode supports one order per guest, a simple acceptance receipt and a
 protected staff dashboard for manual order/payment confirmation. Only the frontend,
 backend and MySQL database are required. Customer accounts, private tracking, email
