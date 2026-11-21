@@ -31,8 +31,6 @@ does not default to mock, and a live failure never falls back to sample data.
 - `/products`: server-backed search/filter/sort/facets, 12-item pages and explicit
   append/deduplicate load-more. Filter state is shareable in the URL.
 - `/products/[slug]`: gallery/specifications/related items and guarded add-to-cart.
-- Portal cart drawer: keyboard trap, background inertness, scroll locking and focus
-  restoration. Product images have a local fallback when a remote image fails.
 - `/checkout`: contact/Bangladesh address validation, server quote review and
   acknowledged order submission. The store contacts the customer to confirm the
   order and payment; no online payment is collected. Customer messenger accounts
